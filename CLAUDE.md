@@ -2,7 +2,7 @@
 
 Web app that turns a natural-language request ("60 km gravel loop from Annecy, avoid main roads, one big climb") into a cycling route the user can preview on a map and download as GPX.
 
-Status: repo scaffolded for Claude only; no app code yet. Features come from the owner, one at a time. Don't build ahead of the ask.
+Features come from the owner, one at a time. Don't build ahead of the ask.
 
 ## Default stack (until the owner says otherwise)
 - TypeScript everywhere, strict mode. pnpm workspaces monorepo.
@@ -10,7 +10,8 @@ Status: repo scaffolded for Claude only; no app code yet. Features come from the
 - `apps/api`: Hono on Node. Feature modules, see below.
 - `packages/*`: shared code only when two apps need it (`packages/shared` for types + zod schemas).
 - Tests: Vitest (unit), Playwright (e2e, only for critical flows).
-- LLM: Claude API via `@anthropic-ai/sdk`, structured output parsed with zod. Routing engine behind an adapter (BRouter / GraphHopper / OSRM).
+- LLM behind an adapter, structured output parsed with zod: a free local model via Ollama by default, Claude API (`@anthropic-ai/sdk`) as the paid option. Routing: self-hosted BRouter behind an adapter.
+- Local run and future hosting: the same `docker compose` (web, api, brouter, ollama).
 
 ## Architecture rules
 - Pipeline: NL query → `RouteIntent` (validated zod object) → routing adapter → track → GPX. Each step is a pure-ish module with a typed contract; the LLM never produces coordinates or GPX directly.

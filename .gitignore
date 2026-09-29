@@ -8,3 +8,5 @@ coverage/
 .claude/settings.local.json
 *.log
 .DS_Store
+apps/web/public/maplibre/
+apps/web/next-env.d.ts

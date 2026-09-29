@@ -1,0 +1,62 @@
+services:
+  brouter:
+    build: docker/brouter
+    environment:
+      BROUTER_TILES: ${BROUTER_TILES:-E0_N45}
+    volumes:
+      - brouter-segments:/opt/brouter/segments4
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:17777/brouter?lonlats=2.35,48.85|2.36,48.86&profile=trekking&format=geojson"]
+      interval: 10s
+      timeout: 10s
+      retries: 3
+      # First start downloads the routing data before the server answers.
+      start_period: 15m
+    restart: unless-stopped
+
+  # Free local language model that reads the free-text requests.
+  ollama:
+    image: ollama/ollama:latest
+    entrypoint: ["/bin/sh", "-c"]
+    # Serves, and downloads the model on first start (about 2 GB).
+    command: ["ollama serve & sleep 3 && ollama pull $$OLLAMA_MODEL && wait"]
+    environment:
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen2.5:3b}
+      OLLAMA_KEEP_ALIVE: 24h
+    volumes:
+      - ollama-models:/root/.ollama
+    restart: unless-stopped
+
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      BROUTER_URL: http://brouter:17777
+      OLLAMA_URL: ${OLLAMA_URL:-http://ollama:11434}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen2.5:3b}
+    depends_on:
+      brouter:
+        condition: service_healthy
+      ollama:
+        condition: service_started
+    restart: unless-stopped
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+    environment:
+      API_URL: http://api:8787
+    ports:
+      - "${WEB_PORT:-3000}:3000"
+    depends_on:
+      - api
+    restart: unless-stopped
+
+volumes:
+  brouter-segments:
+  ollama-models:
