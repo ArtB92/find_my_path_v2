@@ -143,4 +143,21 @@ describe("planner", () => {
     const pins: Pin[] = [{ label: "A", lat: 45.76, lon: 4.83 }];
     await expect(planner.plan(intent({ start: { type: "pin", label: "A" } }), pins)).rejects.toBeInstanceOf(DomainError);
   });
+
+  it("stops starting new routing calls once the time budget is spent", async () => {
+    const fake = createFakeRoutingAdapter(hillsToTheEast);
+    const slowRouting = { route: async (...args: Parameters<typeof fake.route>) => (await sleep(40), fake.route(...args)) };
+    const geocoding = createGeocodingService({
+      ban: createFakeGeocoder(places),
+      photon: createFakeGeocoder(places),
+      serviceArea: { bbox: [1.44, 48.12, 3.56, 49.24], name: "Île-de-France" },
+    });
+    const planner = createPlannerService({ geocoding, routing: slowRouting, budgetMs: 60 });
+    const startedAt = Date.now();
+    await planner.plan(intent({ distanceKm: 80, elevationGainM: 500 }), []).catch(() => null);
+    expect(Date.now() - startedAt).toBeLessThan(300);
+    expect(fake.calls.length).toBeLessThanOrEqual(8);
+  });
 });
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));

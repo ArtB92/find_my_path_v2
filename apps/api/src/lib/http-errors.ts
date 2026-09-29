@@ -11,7 +11,6 @@ const STATUS: Record<ErrorCode, ContentfulStatusCode> = {
   no_route: 422,
   target_unreachable: 422,
   intent_unclear: 422,
-  intent_unavailable: 503,
   upstream_unavailable: 503,
   internal: 500,
 };

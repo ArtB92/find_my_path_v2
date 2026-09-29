@@ -9,11 +9,15 @@ import { bentLegs, ellipseLoop, outAndBack, scaleForLength, type Shape } from ".
 interface Deps {
   geocoding: GeocodingService;
   routing: RoutingAdapter;
+  /** After this long, no new routing call starts and the best route so far is used. */
+  budgetMs?: number;
 }
 
 /** How far from the asked distance and climb a route may land and still count as a match. */
 export const TOLERANCE = { distance: 0.1, elevation: 0.2, elevationMinM: 60 };
 export const DEFAULT_LOOP_KM = 40;
+/** Leaves room, within the 10 s a rider will wait, for reading the request and the calls still running. */
+export const PLAN_BUDGET_MS = 6000;
 
 /** Typical ratio of road distance to straight-line distance through the waypoints. */
 const INITIAL_ROAD_FACTOR = 1.3;
@@ -72,11 +76,10 @@ function potential(c: Candidate, t: Targets, penaliseOverlap: boolean) {
   return 1.5 * elevationError(projectedAscent, t) + (penaliseOverlap ? 3 * c.overlap : 0) + 0.2 * distanceError(c, t);
 }
 
-function headings(count: number) {
-  return Array.from({ length: count }, (_, i) => (360 * i) / count);
-}
+/** Eight directions, opposite ones first, so a round cut short by the time budget still covers every side. */
+const HEADINGS = [0, 180, 90, 270, 45, 225, 135, 315];
 
-export function createPlannerService({ geocoding, routing }: Deps) {
+export function createPlannerService({ geocoding, routing, budgetMs = PLAN_BUDGET_MS }: Deps) {
   async function resolvePlace(ref: PlaceRef, pins: Pin[], preferArea: boolean, signal?: AbortSignal): Promise<Resolved> {
     if (ref.type === "pin") {
       const pin = pins.find((p) => p.label === ref.label);
@@ -90,6 +93,9 @@ export function createPlannerService({ geocoding, routing }: Deps) {
 
   return {
     async plan(intent: RouteIntent, pins: Pin[], signal?: AbortSignal): Promise<Route> {
+      const startedAt = Date.now();
+      const outOfTime = () => Date.now() - startedAt > budgetMs;
+      let routingCalls = 0;
       const [start, end, ...vias] = await Promise.all([
         resolvePlace(intent.start, pins, false, signal),
         intent.end ? resolvePlace(intent.end, pins, false, signal) : null,
@@ -116,6 +122,7 @@ export function createPlannerService({ geocoding, routing }: Deps) {
       async function evaluate(shape: Shape, scale: number): Promise<Candidate | null> {
         const waypoints = shape.waypoints(scale);
         let track: TrackPoint[];
+        routingCalls++;
         try {
           track = await routing.route(waypoints, intent.bike, signal);
         } catch (err) {
@@ -139,7 +146,7 @@ export function createPlannerService({ geocoding, routing }: Deps) {
 
       async function refine(c: Candidate): Promise<Candidate> {
         let best = c;
-        for (let i = 0; i < MAX_REFINEMENTS && targets.distanceM; i++) {
+        for (let i = 0; i < MAX_REFINEMENTS && targets.distanceM && !outOfTime(); i++) {
           if (distanceError(best, targets) <= TOLERANCE.distance / 3) break;
           const scale = scaleForLength(best.shape, targets.distanceM / best.roadFactor);
           if (Math.abs(scale - best.scale) <= 1e-3 * Math.max(1, Math.abs(best.scale))) break;
@@ -152,10 +159,14 @@ export function createPlannerService({ geocoding, routing }: Deps) {
       }
 
       const starts = buildStarts({ start: start!, anchors, isLoop, via, targets, outAndBack: intent.outAndBack });
+      let found = 0;
       const firstRound = (
-        await mapWithConcurrency(starts, PARALLEL_ROUTES, async ({ shape, scale }) =>
-          evaluate(shape, scale ?? scaleForLength(shape, (targets.distanceM ?? 0) / INITIAL_ROAD_FACTOR)),
-        )
+        await mapWithConcurrency(starts, PARALLEL_ROUTES, async ({ shape, scale }) => {
+          if (found > 0 && outOfTime()) return null;
+          const c = await evaluate(shape, scale ?? scaleForLength(shape, (targets.distanceM ?? 0) / INITIAL_ROAD_FACTOR));
+          if (c) found++;
+          return c;
+        })
       ).filter((c): c is Candidate => c !== null);
       if (firstRound.length === 0) throw new DomainError("no_route", "We couldn't find a rideable route here.");
 
@@ -164,6 +175,7 @@ export function createPlannerService({ geocoding, routing }: Deps) {
         .slice(0, REFINED_CANDIDATES);
       const refined = await mapWithConcurrency(shortlist, PARALLEL_ROUTES, refine);
       const best = refined.sort((a, b) => score(a, targets, penaliseOverlap) - score(b, targets, penaliseOverlap))[0]!;
+      console.info(`planned in ${Date.now() - startedAt} ms with ${routingCalls} routing calls`);
 
       if (!withinTolerance(best, targets)) throw unreachable(best, targets);
       if (penaliseOverlap && best.overlap > 0.25) {
@@ -208,11 +220,9 @@ function buildStarts({ start, anchors, isLoop, via, targets, outAndBack: backAll
 
   if (isLoop && via.length === 0) {
     // Try every direction: the terrain, and so the climbing, differs a lot from one side to another.
-    for (const h of headings(wantsClimb ? 12 : 8)) {
-      if (backAllowed) starts.push({ shape: outAndBack(start, h) });
-      starts.push({ shape: ellipseLoop(start, h) });
-      if (wantsClimb) starts.push({ shape: ellipseLoop(start, h, { aspect: 1.8 }) });
-    }
+    starts.push(...HEADINGS.map((h) => ({ shape: ellipseLoop(start, h) })));
+    if (wantsClimb) starts.push(...HEADINGS.map((h) => ({ shape: ellipseLoop(start, h, { aspect: 1.8 }) })));
+    if (backAllowed) starts.push(...HEADINGS.map((h) => ({ shape: outAndBack(start, h) })));
     return starts;
   }
 

@@ -18,6 +18,7 @@ export async function fetchWithTimeout(url: string, { timeoutMs, signal, service
     });
   } catch (err) {
     if (signal?.aborted) throw err;
-    throw new DomainError("upstream_unavailable", `${service} is not reachable right now.`, { cause: err });
+    const message = err instanceof Error && err.name === "TimeoutError" ? `${service} took too long to answer.` : `${service} is not reachable right now.`;
+    throw new DomainError("upstream_unavailable", message, { cause: err });
   }
 }

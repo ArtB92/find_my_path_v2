@@ -11,8 +11,8 @@ export interface IntentLlmAdapter {
 }
 
 const TIMEOUT_MS = 30_000;
-/** A small model on CPU can take a while, especially on its first request after start-up. */
-const LOCAL_TIMEOUT_MS = 120_000;
+/** Routes must come back within 10 s, so a slow local model is cut short and the rules' reading used instead. */
+const LOCAL_TIMEOUT_MS = 5000;
 
 export function systemPrompt(serviceAreaName: string) {
   return `You turn a cyclist's request into route parameters for FindMyPath, a route planner that currently covers ${serviceAreaName}, France. Requests may be in French or English.

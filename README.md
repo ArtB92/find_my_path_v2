@@ -22,13 +22,15 @@ Optional settings (another model, Claude instead of the local model, a different
 
 ```
 text ──► intent (start, finish, stops, distance, climbing, bike)
-            │  local model via Ollama, or Claude; editable in "Route settings"
+            │  rules read common phrasings instantly; the local model (Ollama) or Claude
+            │  only sees the rest; editable in "Route settings"
             ▼
 places ──► coordinates        BAN address base + Photon (OpenStreetMap), typo tolerant
             ▼
 planner ──► waypoints ──► BRouter (self-hosted bike routing, elevation included)
             │  loops: tries shapes in every direction, tunes their size to hit the
-            │  distance, prefers the asked climbing, rejects roads ridden twice
+            │  distance, prefers the asked climbing, rejects roads ridden twice;
+            │  stops searching after 6 s so a route comes back within 10 s
             ▼
 route ──► map, elevation profile, GPX
 ```

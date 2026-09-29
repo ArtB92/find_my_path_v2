@@ -91,7 +91,6 @@ export const ErrorCodeSchema = z.enum([
   "outside_service_area",
   "no_route",
   "target_unreachable",
-  "intent_unavailable",
   "intent_unclear",
   "upstream_unavailable",
   "internal",
