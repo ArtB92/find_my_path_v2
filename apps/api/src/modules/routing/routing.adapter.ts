@@ -30,6 +30,9 @@ export function createBrouterAdapter(baseUrl: string): RoutingAdapter {
       if (!res.ok) {
         const detail = await res.text().catch(() => "");
         console.warn(`BRouter ${res.status}: ${detail.slice(0, 300)}`);
+        if (/datafile .* not found/i.test(detail)) {
+          throw new DomainError("upstream_unavailable", "The routing engine is missing the map data for this area.");
+        }
         if (/not mapped|island/i.test(detail)) {
           throw new DomainError("no_route", "One of the points is too far from any rideable road.");
         }
