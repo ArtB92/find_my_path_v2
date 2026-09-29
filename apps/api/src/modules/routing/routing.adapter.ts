@@ -33,6 +33,9 @@ export function createBrouterAdapter(baseUrl: string): RoutingAdapter {
         if (/datafile .* not found/i.test(detail)) {
           throw new DomainError("upstream_unavailable", "The routing engine is missing the map data for this area.");
         }
+        if (/lookup version mismatch/i.test(detail)) {
+          throw new DomainError("upstream_unavailable", "The routing engine is out of date for its map data.");
+        }
         if (/not mapped|island/i.test(detail)) {
           throw new DomainError("no_route", "One of the points is too far from any rideable road.");
         }

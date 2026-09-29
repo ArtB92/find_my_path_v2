@@ -1,7 +1,7 @@
 FROM eclipse-temurin:21-jre
 
 # Falls back to the latest release if this one is ever removed.
-ARG BROUTER_VERSION=1.7.8
+ARG BROUTER_VERSION=1.7.10
 
 RUN apt-get update \
  && apt-get install -y --no-install-recommends curl unzip jq ca-certificates \
