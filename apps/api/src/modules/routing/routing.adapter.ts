@@ -29,6 +29,7 @@ export function createBrouterAdapter(baseUrl: string): RoutingAdapter {
       const res = await fetchWithTimeout(url.toString(), { timeoutMs: TIMEOUT_MS, signal, service: "The routing engine" });
       if (!res.ok) {
         const detail = await res.text().catch(() => "");
+        console.warn(`BRouter ${res.status}: ${detail.slice(0, 300)}`);
         if (/not mapped|island/i.test(detail)) {
           throw new DomainError("no_route", "One of the points is too far from any rideable road.");
         }

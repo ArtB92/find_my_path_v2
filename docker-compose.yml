@@ -5,13 +5,6 @@ services:
       BROUTER_TILES: ${BROUTER_TILES:-E0_N45}
     volumes:
       - brouter-segments:/opt/brouter/segments4
-    healthcheck:
-      test: ["CMD", "curl", "-sf", "http://localhost:17777/brouter?lonlats=2.35,48.85|2.36,48.86&profile=trekking&format=geojson"]
-      interval: 10s
-      timeout: 10s
-      retries: 3
-      # First start downloads the routing data before the server answers.
-      start_period: 15m
     restart: unless-stopped
 
   # Free local language model that reads the free-text requests.
@@ -38,11 +31,10 @@ services:
       BROUTER_URL: http://brouter:17777
       OLLAMA_URL: ${OLLAMA_URL:-http://ollama:11434}
       OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen2.5:3b}
+    # Starts without waiting: until BRouter has its data, route requests fail with a clear message.
     depends_on:
-      brouter:
-        condition: service_healthy
-      ollama:
-        condition: service_started
+      - brouter
+      - ollama
     restart: unless-stopped
 
   web:
