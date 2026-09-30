@@ -2,6 +2,7 @@ import type { LatLon, Pin, RouteIntent } from "@find-my-path/shared";
 import { describe, expect, it } from "vitest";
 import { DomainError } from "../../lib/errors";
 import { createFakeGeocoder, createGeocodingService, type GeocodedPlace } from "../geocoding";
+import { createClimbIndex, type Climb } from "../climbs";
 import { createFakeRoutingAdapter } from "../routing";
 import { haversineM, localPlane, overlapRatio } from "./planner.geometry";
 import { createPlannerService, TOLERANCE } from "./planner.service";
@@ -23,7 +24,31 @@ function hillsToTheEast(p: LatLon) {
   return x > 0 ? 50 * (1 - Math.cos(x / 1500)) : 0;
 }
 
-function setup(elevationAt?: (p: LatLon) => number) {
+/** Climbs up the eastern hills: from a trough (x = 2πk·1500 m) to the next crest, riding east. */
+function easternClimbs(): Climb[] {
+  const plane = localPlane(places.versailles);
+  return [
+    { x: 2 * Math.PI * 1500, y: 3000 },
+    { x: 4 * Math.PI * 1500, y: -2000 },
+  ].map(({ x, y }, id) => ({
+    id,
+    name: `Côte ${id}`,
+    path: [0, 1 / 3, 2 / 3, 1].map((f) => {
+      const p = plane.toLatLon({ x: x + f * Math.PI * 1500, y });
+      return [p.lon, p.lat] as [number, number];
+    }),
+    bottomEle: 0,
+    topEle: 100,
+    lengthM: Math.PI * 1500,
+    gainM: 100,
+    avgGrade: 100 / (Math.PI * 1500),
+    maxGrade: 0.05,
+    roadClass: "tertiary",
+    paved: true,
+  }));
+}
+
+function setup(elevationAt?: (p: LatLon) => number, climbs: Climb[] = []) {
   const fake = createFakeGeocoder(places);
   const geocoding = createGeocodingService({
     ban: fake,
@@ -31,7 +56,7 @@ function setup(elevationAt?: (p: LatLon) => number) {
     serviceArea: { bbox: [1.44, 48.12, 3.56, 49.24], name: "Île-de-France" },
   });
   const routing = createFakeRoutingAdapter(elevationAt);
-  return { planner: createPlannerService({ geocoding, routing }), routing };
+  return { planner: createPlannerService({ geocoding, routing, climbs: createClimbIndex(climbs) }), routing };
 }
 
 const text = (t: string) => ({ type: "text" as const, text: t });
@@ -166,6 +191,19 @@ describe("planner", () => {
       const farthest = waypoints.reduce((a, b) => (haversineM(b, places.versailles) > haversineM(a, places.versailles) ? b : a));
       expect(farthest.lat).toBeLessThan(places.versailles.lat);
     }
+  });
+
+  it("sends a hilly loop up known climbs, bottom to top", async () => {
+    const climbs = easternClimbs();
+    const { planner, routing } = setup(hillsToTheEast, climbs);
+    const route = await planner.plan(intent({ distanceKm: 80, elevationGainM: 500 }), []);
+    const firstCall = routing.calls[0]!;
+    const onClimb = climbs.find((c) => firstCall.some((p) => haversineM(p, { lon: c.path[0]![0], lat: c.path[0]![1] }) < 1))!;
+    const bottom = firstCall.findIndex((p) => haversineM(p, { lon: onClimb.path[0]![0], lat: onClimb.path[0]![1] }) < 1);
+    const top = firstCall.findIndex((p) => haversineM(p, { lon: onClimb.path[3]![0], lat: onClimb.path[3]![1] }) < 1);
+    expect(top - bottom).toBe(3);
+    expect(route.notes.join(" ")).toMatch(/Climbs: Côte/);
+    expect(Math.abs(route.ascentM - 500)).toBeLessThanOrEqual(Math.max(TOLERANCE.elevation * 500, TOLERANCE.elevationMinM));
   });
 
   it("stops starting new routing calls once the time budget is spent", async () => {

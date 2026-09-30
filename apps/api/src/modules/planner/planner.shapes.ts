@@ -71,9 +71,10 @@ function signedArea(points: { x: number; y: number }[]): number {
  * Keeps the rider's anchors (start, places to pass, end) and bends each leg sideways through a
  * shaping point. Scale is the bend as a fraction of the leg length: 0 goes straight through
  * the anchors. On a loop the bends point outwards, so going to a place and back uses two
- * different sides instead of the same road twice.
+ * different sides instead of the same road twice. Legs listed in `fixed` (by the index of the
+ * anchor they end at) stay straight: a climb must be ridden as it is.
  */
-export function bentLegs(anchors: LatLon[], { at = 0.5, side = 1 } = {}): Shape {
+export function bentLegs(anchors: LatLon[], { at = 0.5, side = 1, fixed = new Set<number>() } = {}): Shape {
   const plane = localPlane(anchors[0]!);
   const xy = anchors.map(plane.toXY);
   const isLoop = anchors.length > 2 && pathLengthM([anchors[0]!, anchors[anchors.length - 1]!]) < 1;
@@ -92,7 +93,7 @@ export function bentLegs(anchors: LatLon[], { at = 0.5, side = 1 } = {}): Shape 
         const dx = b.x - a.x;
         const dy = b.y - a.y;
         const len = Math.hypot(dx, dy);
-        if (scale > 0 && len > 300) {
+        if (scale > 0 && len > 300 && !fixed.has(i)) {
           const off = scale * side * outward;
           out.push(plane.toLatLon({ x: a.x + dx * at + dy * off, y: a.y + dy * at - dx * off }));
         }

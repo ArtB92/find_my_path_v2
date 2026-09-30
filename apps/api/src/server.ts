@@ -3,7 +3,7 @@ import { createAppFromConfig } from "./app";
 import { loadConfig } from "./config";
 
 const config = loadConfig();
-const app = createAppFromConfig(config);
+const app = await createAppFromConfig(config);
 
 serve({ fetch: app.fetch, port: config.PORT }, ({ port }) => {
   const reader = config.INTENT_PROVIDER === "ollama" ? `Ollama ${config.OLLAMA_MODEL}` : `Claude ${config.INTENT_MODEL}`;

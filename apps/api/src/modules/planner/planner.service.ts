@@ -1,9 +1,11 @@
 import type { Compass, LatLon, Pin, PlaceRef, Route, RouteIntent, RouteWaypoint, TrackPoint } from "@find-my-path/shared";
 import { mapWithConcurrency } from "../../lib/concurrency";
 import { DomainError } from "../../lib/errors";
+import type { ClimbIndex } from "../climbs";
 import type { GeocodedPlace, GeocodingService } from "../geocoding";
 import type { NoGoZone, RoutingAdapter } from "../routing";
 import { destination, elevationStats, haversineM, localPlane, overlapRatio, pathLengthM, trackLengthM, trimSpurs } from "./planner.geometry";
+import { climbLoops, type ClimbShape } from "./planner.climbs";
 import { bentLegs, ellipseLoop, outAndBack, scaleForLength, type Shape } from "./planner.shapes";
 
 interface Deps {
@@ -11,6 +13,8 @@ interface Deps {
   routing: RoutingAdapter;
   /** After this long, no new routing call starts and the best route so far is used. */
   budgetMs?: number;
+  /** Known climbs, so loops asked to climb can be sent up real hills. */
+  climbs?: ClimbIndex;
 }
 
 /** How far from the asked distance and climb a route may land and still count as a match. */
@@ -112,7 +116,7 @@ function moveOutOfZones(points: LatLon[], zones: Zone[]): LatLon[] {
 const entersZone = (track: TrackPoint[], zones: Zone[]) =>
   zones.some((z) => track.some(([lon, lat]) => haversineM({ lat, lon }, z) < 0.8 * z.radiusM));
 
-export function createPlannerService({ geocoding, routing, budgetMs = PLAN_BUDGET_MS }: Deps) {
+export function createPlannerService({ geocoding, routing, budgetMs = PLAN_BUDGET_MS, climbs }: Deps) {
   async function resolvePlace(ref: PlaceRef, pins: Pin[], preferArea: boolean, signal?: AbortSignal): Promise<Resolved> {
     if (ref.type === "pin") {
       const pin = pins.find((p) => p.label === ref.label);
@@ -205,6 +209,16 @@ export function createPlannerService({ geocoding, routing, budgetMs = PLAN_BUDGE
         return best;
       }
 
+      const climbShapes =
+        climbs && isLoop && via.length === 0 && targets.distanceM && targets.elevationM
+          ? climbLoops({
+              start: start!,
+              climbs: climbs.near(start!, 0.4 * targets.distanceM, { paved: intent.bike === "road" }),
+              distanceM: targets.distanceM,
+              elevationM: targets.elevationM,
+              headingDeg: intent.direction && COMPASS_DEG[intent.direction],
+            })
+          : [];
       const starts = buildStarts({
         start: start!,
         anchors,
@@ -214,6 +228,7 @@ export function createPlannerService({ geocoding, routing, budgetMs = PLAN_BUDGE
         outAndBack: intent.outAndBack,
         direction: intent.direction,
         detour: zones.length > 0,
+        climbShapes,
       });
       let found = 0;
       const firstRound = (
@@ -237,6 +252,10 @@ export function createPlannerService({ geocoding, routing, budgetMs = PLAN_BUDGE
       console.info(`planned in ${Date.now() - startedAt} ms with ${routingCalls} routing calls`);
 
       if (!withinTolerance(best, targets)) throw unreachable(best, targets);
+      const climbed = (best.shape as Partial<ClimbShape>).climbs;
+      if (climbed?.length) {
+        notes.push(`Climbs: ${climbed.map((c) => `${c.name ?? "unnamed road"} (${(c.lengthM / 1000).toFixed(1)} km at ${Math.round(c.avgGrade * 100)}%)`).join(", ")}.`);
+      }
       if (penaliseOverlap && best.overlap > 0.25) {
         notes.push("Some roads are ridden twice: there aren't many ways around here.");
       }
@@ -273,10 +292,12 @@ interface StartOptions {
   direction: Compass | null;
   /** Places to avoid: worth trying routes bent to either side even when the straight one looks fine. */
   detour: boolean;
+  /** Loops over known climbs, tried first when there are some. */
+  climbShapes: Shape[];
 }
 
 /** The candidate shapes worth trying for this request, with a fixed scale when there's no distance to aim for. */
-function buildStarts({ start, anchors, isLoop, via, targets, outAndBack: backAllowed, direction, detour }: StartOptions) {
+function buildStarts({ start, anchors, isLoop, via, targets, outAndBack: backAllowed, direction, detour, climbShapes }: StartOptions) {
   const starts: { shape: Shape; scale?: number }[] = [];
   const wantsClimb = targets.elevationM !== null;
 
@@ -284,8 +305,10 @@ function buildStarts({ start, anchors, isLoop, via, targets, outAndBack: backAll
     // Try every direction (or every angle around the one asked): the terrain, and so the climbing,
     // differs a lot from one side to another.
     const headings = direction ? DIRECTION_SPREAD.map((d) => (COMPASS_DEG[direction] + d + 360) % 360) : HEADINGS;
+    starts.push(...climbShapes.map((shape) => ({ shape })));
     starts.push(...headings.map((h) => ({ shape: ellipseLoop(start, h) })));
-    if (wantsClimb) starts.push(...headings.map((h) => ({ shape: ellipseLoop(start, h, { aspect: 1.8 }) })));
+    // Stretched loops reach further for hills; known climbs do that better when there are some.
+    if (wantsClimb && climbShapes.length === 0) starts.push(...headings.map((h) => ({ shape: ellipseLoop(start, h, { aspect: 1.8 }) })));
     if (backAllowed) starts.push(...headings.map((h) => ({ shape: outAndBack(start, h) })));
     return starts;
   }

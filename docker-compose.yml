@@ -49,6 +49,16 @@ services:
       - api
     restart: unless-stopped
 
+  # Rebuilds data/climbs from open map and elevation data: docker compose run --rm climbs
+  climbs:
+    build: tools/climbs
+    profiles: ["tools"]
+    command: ["--bbox", "1.44,48.12,3.56,49.24", "--out", "/out/ile-de-france.json"]
+    volumes:
+      - ./data/climbs:/out
+      - climbs-cache:/tools/cache
+
 volumes:
+  climbs-cache:
   brouter-segments:
   ollama-models:

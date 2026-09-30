@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import type { Config } from "./config";
 import { errorResponse } from "./lib/http-errors";
+import { loadClimbIndex, type ClimbIndex } from "./modules/climbs";
 import { createBanGeocoder, createGeocodingService, createPhotonGeocoder } from "./modules/geocoding";
 import {
   createClaudeIntentAdapter,
@@ -16,19 +17,23 @@ interface AppDeps {
   llm: IntentLlmAdapter | null;
   routing: RoutingAdapter;
   geocoding: ReturnType<typeof createGeocodingService>;
+  climbs?: ClimbIndex;
 }
 
-export function createApp({ llm, routing, geocoding }: AppDeps) {
+export function createApp({ llm, routing, geocoding, climbs }: AppDeps) {
   const app = new Hono();
   app.get("/health", (c) => c.json({ ok: true }));
   app.route("/", intentRoutes(createIntentService({ llm })));
-  app.route("/", plannerRoutes(createPlannerService({ geocoding, routing })));
+  app.route("/", plannerRoutes(createPlannerService({ geocoding, routing, climbs })));
   app.onError(errorResponse);
   return app;
 }
 
-export function createAppFromConfig(config: Config) {
+export async function createAppFromConfig(config: Config) {
+  const climbs = await loadClimbIndex(config.CLIMBS_FILE);
+  if (climbs.size === 0) console.warn(`No climbs in ${config.CLIMBS_FILE}: hilly loops won't target known climbs.`);
   return createApp({
+    climbs,
     llm: intentAdapter(config),
     routing: createBrouterAdapter(config.BROUTER_URL),
     geocoding: createGeocodingService({

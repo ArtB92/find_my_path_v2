@@ -13,7 +13,8 @@ RUN pnpm --filter @find-my-path/api build
 FROM node:22-slim
 WORKDIR /app
 COPY --from=build /repo/apps/api/dist/server.js ./server.js
-ENV NODE_ENV=production PORT=8787
+COPY data/climbs/ile-de-france.json ./climbs.json
+ENV NODE_ENV=production PORT=8787 CLIMBS_FILE=/app/climbs.json
 USER node
 EXPOSE 8787
 CMD ["node", "server.js"]

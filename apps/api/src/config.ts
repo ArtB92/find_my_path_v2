@@ -19,6 +19,8 @@ const EnvSchema = z.object({
   /** minLon,minLat,maxLon,maxLat of the area we can route in (Île-de-France for now). */
   SERVICE_AREA_BBOX: BboxSchema.default([1.44, 48.12, 3.56, 49.24]),
   SERVICE_AREA_NAME: z.string().default("Île-de-France"),
+  /** Climb index built by tools/climbs; relative paths start from where the API runs. */
+  CLIMBS_FILE: z.string().default("../../data/climbs/ile-de-france.json"),
 });
 
 export type Config = z.infer<typeof EnvSchema>;
