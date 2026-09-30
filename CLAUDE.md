@@ -25,7 +25,7 @@ Aim for a calm, crafted product, not a template. Before any UI work, load the `u
 The vendored skills (`.claude/skills/SOURCES.md`) are general guidance; where they disagree with `ui-craft` or this file (extra component, animation or icon libraries, Title Case copy, remote images), `ui-craft` and this file win. Before calling UI work done, check it against `web-interface-guidelines` and look at it at 375px and 1440px with `webapp-testing`.
 
 ## Working conventions
-- Small PRs, one concern each. Conventional commit prefixes (`feat:`, `fix:`, `chore:`…).
+- Small PRs, one concern each. Branches, PR titles and commits start with `feat`, `fix` or `chore`: load the `pr-naming` skill before branching, committing or opening a PR.
 - Before calling work done: `pnpm lint && pnpm typecheck && pnpm test` (once those scripts exist).
 - Any change to reading requests, geocoding, routing or the planner must also pass `pnpm test:acceptance` against the running stack (`apps/api/test/acceptance/queries.ts`: the cyclist queries every PR must answer, each within 10 s). A request that goes wrong in real use becomes a new case there.
 - New backend module: load the `backend-module` skill.
