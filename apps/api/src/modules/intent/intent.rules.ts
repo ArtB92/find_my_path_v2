@@ -61,12 +61,38 @@ const ELEVATION = [
   new RegExp(`${NUMBER}\\s*${METRES}(?![${W}])`, "iu"),
 ];
 
+const AVOID = word(
+  "avoiding|avoid|en évitant|en evitant|évitant|evitant|éviter|eviter|sans passer par|without going through|not through|not via|stay(?:ing)? (?:away from|out of)|away from|hors de",
+);
+/** Busy roads are always avoided, so "avoid main roads" needs nothing more. */
+const BUSY_ROADS = word("main roads?|busy roads?|big roads?|highways?|motorways?|traffic|trafic|grands? axes?|grandes? routes?|routes? nationales?|nationales?|autoroutes?|voies? rapides?");
+const COMPASS = "north|south|east|west|nord|sud|est|ouest";
+const DIRECTION = word(
+  `(?:towards?|heading|head|going|go|direction|to|vers|au|à l'|a l'|en direction d(?:u|e l'|e)|cap au|cap sur)(?: the| le| la| l')?\\s*` +
+    `((?:${COMPASS})(?:[\\s-]?(?:${COMPASS}))?|ne|nw|se|sw)(?: side| côté)?`,
+);
+
+/** "south west", "sud-ouest", "SW" -> "SW". */
+function toCompass(words: string): LlmIntent["direction"] {
+  const letters = words
+    .toLowerCase()
+    .replace(/ouest|west/g, "w")
+    .replace(/east|est/g, "e")
+    .replace(/north|nord/g, "n")
+    .replace(/south|sud/g, "s")
+    .replace(/[^nsew]/g, "");
+  const ns = letters.includes("n") ? "N" : letters.includes("s") ? "S" : "";
+  const ew = letters.includes("w") ? "W" : letters.includes("e") ? "E" : "";
+  return ((ns + ew) || null) as LlmIntent["direction"];
+}
+
 const FILLER = new Set(
   (
     "a an the some my me i we you it is of in at do go get make give find show plan ride riding cycle cycling bike bicycle route routes itinerary way nice good great " +
     "around about approximately approx roughly near nearly almost max maximum min minimum total only just like want need would could can please thanks " +
     "un une le la les l d de du des mon ma mes je on moi faire trouve trouver donne donner propose proposer balade sortie parcours itinéraire itineraire trajet " +
-    "vélo velo environ à peu près presque max minimum maximum total seulement bien belle beau jolie joli merci"
+    "vélo velo environ à peu près presque max minimum maximum total seulement bien belle beau jolie joli merci " +
+    "build create generate draw long start starting and then going et puis crée créer construis construire génère générer fais dessine longue"
   ).split(" "),
 );
 
@@ -116,6 +142,25 @@ export function parseWithRules(query: string, pins: Pin[]): RulesResult | null {
   const loopWord = LOOP.test(text);
   for (const re of [LOOP, BIKE_WORDS, PREAMBLE]) text = strip(text, re);
 
+  const directionMatch = DIRECTION.exec(text);
+  const direction = directionMatch ? toCompass(directionMatch[1]!) : null;
+  if (directionMatch) text = text.replace(directionMatch[0], " ; ");
+
+  // "avoiding Chatou and Croissy": the places run until the next marker, clause or full stop.
+  const avoid: string[] = [];
+  for (let m = AVOID.exec(text); m; m = AVOID.exec(text)) {
+    const after = text.slice(m.index + m[0].length);
+    const stop = [/[;.,]/u.exec(after), new RegExp(markerRe.source, "iu").exec(after), CLAUSE_BREAK.exec(after)]
+      .filter((x): x is RegExpExecArray => x !== null)
+      .reduce((min, x) => Math.min(min, x.index), after.length);
+    for (const part of after.slice(0, stop).split(LIST_SPLIT)) {
+      const place = toPlace(part, pins);
+      if (BUSY_ROADS.test(place)) continue;
+      if (place) avoid.push(place);
+    }
+    text = `${text.slice(0, m.index)} ; ${after.slice(stop)}`;
+  }
+
   // French "de Paris à Versailles": a leading "de" is a start marker.
   text = text.replace(new RegExp(`^\\s*(?:(?:un |une |l')?(?:itinéraire|itineraire|trajet|parcours|route|aller)\\s+)?de\\s+`, "iu"), " depuis ");
 
@@ -154,7 +199,8 @@ export function parseWithRules(query: string, pins: Pin[]): RulesResult | null {
   // "Paris to Versailles", "Tour Eiffel 80 km": the place before any marker is the start.
   const chunks = prefix.split(";");
   const startChunk = start ? -1 : chunks.findIndex((s) => meaningful(s).length > 0);
-  const saysRoute = loopWord || outAndBack || bike !== null || distanceKm !== null || elevationGainM !== null || segments.length > 0;
+  const saysRoute =
+    loopWord || outAndBack || bike !== null || distanceKm !== null || elevationGainM !== null || segments.length > 0 || direction !== null || avoid.length > 0;
   if (startChunk >= 0 && saysRoute) {
     const chunk = chunks[startChunk]!;
     const cut = CLAUSE_BREAK.exec(chunk);
@@ -164,7 +210,7 @@ export function parseWithRules(query: string, pins: Pin[]): RulesResult | null {
   leftovers.push(...chunks.filter((_, i) => i !== startChunk));
 
   if (!start) return null;
-  const places = [start, end, ...via.map((v) => v.place)].filter((p): p is string => p !== null);
+  const places = [start, end, ...via.map((v) => v.place), ...avoid].filter((p): p is string => p !== null);
   if (places.some((p) => p.split(/\s+/).length > 8)) return null;
 
   const loop = loopWord || !end;
@@ -179,6 +225,8 @@ export function parseWithRules(query: string, pins: Pin[]): RulesResult | null {
       elevationGainM,
       bike,
       outAndBack,
+      avoid,
+      direction,
       notes: [],
     },
     complete: leftovers.every((s) => meaningful(s).length === 0),

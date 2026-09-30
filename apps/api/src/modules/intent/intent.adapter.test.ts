@@ -12,6 +12,8 @@ const answer: LlmIntent = {
   elevationGainM: null,
   bike: null,
   outAndBack: false,
+  avoid: [],
+  direction: null,
   notes: [],
 };
 

@@ -79,7 +79,14 @@ export function createPhotonGeocoder(baseUrl: string): GeocoderAdapter {
         const label = [p.housenumber && p.street ? `${p.housenumber} ${p.street}` : p.name, p.city ?? p.county]
           .filter(Boolean)
           .join(", ");
-        return { lon, lat, name: label || query, kind, score: 1 - i * 0.1 };
+        // Photon's extent runs from the north-west corner to the south-east one.
+        const extent: Bbox | undefined = p.extent && [
+          Math.min(p.extent[0], p.extent[2]),
+          Math.min(p.extent[1], p.extent[3]),
+          Math.max(p.extent[0], p.extent[2]),
+          Math.max(p.extent[1], p.extent[3]),
+        ];
+        return { lon, lat, name: label || query, kind, score: 1 - i * 0.1, ...(extent && { extent }) };
       });
     },
   };

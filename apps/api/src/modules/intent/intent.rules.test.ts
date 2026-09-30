@@ -26,6 +26,24 @@ describe("rules parser", () => {
     expect(result?.intent).toMatchObject(expected);
   });
 
+  it.each([
+    [
+      "Build a  nice loop start and from Asnières, about 100km long,  going through Versailles",
+      { start: "Asnières", loop: true, distanceKm: 100, via: [{ place: "Versailles", kind: "point" }] },
+    ],
+    [
+      "build a route from Versailles to Paris, going through Poissy, avoiding Chatou",
+      { start: "Versailles", end: "Paris", via: [{ place: "Poissy", kind: "point" }], avoid: ["Chatou"] },
+    ],
+    ["build a loop from Asnières, going towards south west", { start: "Asnières", loop: true, direction: "SW" }],
+    ["boucle de 60 km depuis Versailles vers le sud-est en évitant Buc et Jouy-en-Josas", { start: "Versailles", direction: "SE", avoid: ["Buc", "Jouy-en-Josas"] }],
+    ["loop from Paris heading north, avoiding Saint-Denis, 50 km", { start: "Paris", direction: "N", avoid: ["Saint-Denis"], distanceKm: 50 }],
+  ])("reads the harder request %s", (query, expected) => {
+    const result = parseWithRules(query, pins);
+    expect(result?.complete).toBe(true);
+    expect(result?.intent).toMatchObject(expected);
+  });
+
   it("keeps stops in order and tells areas from points", () => {
     const result = parseWithRules("From Paris to Rambouillet via Saclay and the forêt de Meudon", pins);
     expect(result?.complete).toBe(true);

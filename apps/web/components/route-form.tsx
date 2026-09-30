@@ -1,6 +1,6 @@
 "use client";
 
-import type { Bike } from "@find-my-path/shared";
+import type { Bike, Compass } from "@find-my-path/shared";
 import * as Switch from "@radix-ui/react-switch";
 import * as ToggleGroup from "@radix-ui/react-toggle-group";
 import type { ReactNode } from "react";
@@ -17,6 +17,17 @@ const BIKES: { value: Bike; label: string }[] = [
   { value: "road", label: "Road" },
   { value: "gravel", label: "Gravel" },
   { value: "trekking", label: "Hybrid" },
+];
+
+const DIRECTIONS: { value: Compass; label: string }[] = [
+  { value: "N", label: "North" },
+  { value: "NE", label: "North-east" },
+  { value: "E", label: "East" },
+  { value: "SE", label: "South-east" },
+  { value: "S", label: "South" },
+  { value: "SW", label: "South-west" },
+  { value: "W", label: "West" },
+  { value: "NW", label: "North-west" },
 ];
 
 const inputClass =
@@ -101,6 +112,28 @@ export function RouteFormFields({ form, onChange, onSubmit, busy }: Props) {
           Add a stop
         </button>
       </fieldset>
+
+      <Field label="Stay out of" id="avoid">
+        <input id="avoid" className={inputClass} value={form.avoid} onChange={(e) => set("avoid", e.target.value)} placeholder="Towns or areas, separated by commas" />
+      </Field>
+
+      {form.loop && (
+        <Field label="Head towards" id="direction">
+          <select
+            id="direction"
+            className={inputClass}
+            value={form.direction}
+            onChange={(e) => set("direction", e.target.value as RouteForm["direction"])}
+          >
+            <option value="">Any direction</option>
+            {DIRECTIONS.map((d) => (
+              <option key={d.value} value={d.value}>
+                {d.label}
+              </option>
+            ))}
+          </select>
+        </Field>
+      )}
 
       <div className="grid grid-cols-2 gap-3">
         <Field label="Distance (km)" id="distance">

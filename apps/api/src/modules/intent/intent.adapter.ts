@@ -26,8 +26,10 @@ Fill the fields as follows.
 - elevationGainM: total climbing asked for ("500 m elevation", "500 D+", "dénivelé"), otherwise null. "One big climb" or "hilly" without a number: null, and add a note.
 - bike: road ("vélo de route"), gravel, trekking (VTC, hybrid, city bike); null when not said.
 - outAndBack: true only when the rider explicitly wants to go and come back the same way ("aller-retour").
+- avoid: towns or areas the rider wants to stay out of ("avoiding Chatou", "sans passer par Poissy"), as clean geocoder queries.
+- direction: for a loop, the compass point it should head towards ("towards the south west" -> "SW", "vers le nord" -> "N"), otherwise null.
 - notes: short phrases, in the rider's language, for anything asked that these fields cannot express. Avoiding main roads, motorways and traffic is always handled, so never note it.
-- isRouteRequest: false when the message is not asking for a bike route; leave the rest empty then.`;
+- isRouteRequest: false only when the message is clearly not about a ride (a greeting, an unrelated question); leave the rest empty then.`;
 }
 
 function userMessage(query: string, pins: Pin[]) {

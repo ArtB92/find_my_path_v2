@@ -14,6 +14,7 @@ const places = {
   saclay: place("Saclay", 48.7302, 2.1692),
   meudon: place("Meudon", 48.8133, 2.2358),
   paris: place("Paris", 48.8566, 2.3522),
+  "sèvres": place("Sèvres", 48.823, 2.211),
 };
 
 /** Flat to the west, rolling hills (100 m waves every ~9 km) to the east of Versailles. */
@@ -42,6 +43,8 @@ const intent = (over: Partial<RouteIntent>): RouteIntent => ({
   elevationGainM: null,
   bike: "road",
   outAndBack: false,
+  avoid: [],
+  direction: null,
   ...over,
 });
 
@@ -142,6 +145,27 @@ describe("planner", () => {
     const { planner } = setup();
     const pins: Pin[] = [{ label: "A", lat: 45.76, lon: 4.83 }];
     await expect(planner.plan(intent({ start: { type: "pin", label: "A" } }), pins)).rejects.toBeInstanceOf(DomainError);
+  });
+
+  it("goes around a place to avoid, and tells the router to", async () => {
+    const { planner, routing } = setup();
+    const route = await planner.plan(intent({ end: text("Paris"), avoid: [text("Sèvres")] }), []);
+    expect(routing.avoided[0]).toEqual([expect.objectContaining({ lat: places["sèvres"].lat, lon: places["sèvres"].lon, radiusM: 1500 })]);
+    expect(passesNear(route.track, places["sèvres"], 1200)).toBe(false);
+  });
+
+  it("refuses to avoid the place the route starts from", async () => {
+    const { planner } = setup();
+    await expect(planner.plan(intent({ avoid: [text("Versailles")] }), [])).rejects.toThrow(/inside Versailles/);
+  });
+
+  it("sends a loop towards the direction asked", async () => {
+    const { planner, routing } = setup();
+    await planner.plan(intent({ distanceKm: 40, direction: "S" }), []);
+    for (const waypoints of routing.calls) {
+      const farthest = waypoints.reduce((a, b) => (haversineM(b, places.versailles) > haversineM(a, places.versailles) ? b : a));
+      expect(farthest.lat).toBeLessThan(places.versailles.lat);
+    }
   });
 
   it("stops starting new routing calls once the time budget is spent", async () => {

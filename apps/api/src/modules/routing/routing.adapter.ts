@@ -3,9 +3,19 @@ import { DomainError } from "../../lib/errors";
 import { fetchWithTimeout } from "../../lib/http";
 import { BrouterResponseSchema } from "./routing.schema";
 
+/** A circle the route must not enter. */
+export interface NoGoZone extends LatLon {
+  radiusM: number;
+}
+
+export interface RouteOptions {
+  avoid?: NoGoZone[];
+  signal?: AbortSignal;
+}
+
 export interface RoutingAdapter {
   /** Rideable track through the given points, in order. */
-  route(points: LatLon[], bike: Bike, signal?: AbortSignal): Promise<TrackPoint[]>;
+  route(points: LatLon[], bike: Bike, options?: RouteOptions): Promise<TrackPoint[]>;
 }
 
 /** Stock BRouter profiles: all keep bikes off motorways; fastbike prefers smooth paved roads, trekking accepts good tracks. */
@@ -19,12 +29,15 @@ const TIMEOUT_MS = 45_000;
 
 export function createBrouterAdapter(baseUrl: string): RoutingAdapter {
   return {
-    async route(points, bike, signal) {
+    async route(points, bike, { avoid = [], signal } = {}) {
       const url = new URL(`${baseUrl.replace(/\/$/, "")}/brouter`);
       url.searchParams.set("lonlats", points.map((p) => `${p.lon.toFixed(6)},${p.lat.toFixed(6)}`).join("|"));
       url.searchParams.set("profile", BROUTER_PROFILES[bike]);
       url.searchParams.set("alternativeidx", "0");
       url.searchParams.set("format", "geojson");
+      if (avoid.length) {
+        url.searchParams.set("nogos", avoid.map((z) => `${z.lon.toFixed(6)},${z.lat.toFixed(6)},${Math.round(z.radiusM)}`).join("|"));
+      }
 
       const res = await fetchWithTimeout(url.toString(), { timeoutMs: TIMEOUT_MS, signal, service: "The routing engine" });
       if (!res.ok) {
@@ -52,15 +65,18 @@ export function createBrouterAdapter(baseUrl: string): RoutingAdapter {
   };
 }
 
-/** Straight lines densified every ~50 m, with elevation from `elevationAt`. For tests. */
+/** Straight lines densified every ~50 m, with elevation from `elevationAt`. Ignores no-go zones. For tests. */
 export function createFakeRoutingAdapter(
   elevationAt: (p: LatLon) => number = () => 0,
-): RoutingAdapter & { calls: LatLon[][] } {
+): RoutingAdapter & { calls: LatLon[][]; avoided: NoGoZone[][] } {
   const calls: LatLon[][] = [];
+  const avoided: NoGoZone[][] = [];
   return {
     calls,
-    async route(points) {
+    avoided,
+    async route(points, _bike, { avoid = [] } = {}) {
       calls.push(points);
+      avoided.push(avoid);
       const track: TrackPoint[] = [];
       for (let i = 0; i < points.length - 1; i++) {
         const a = points[i]!;

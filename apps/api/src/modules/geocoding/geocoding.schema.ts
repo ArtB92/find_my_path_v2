@@ -9,6 +9,8 @@ export interface GeocodedPlace {
   kind: PlaceKind;
   /** 0..1, provider confidence where available. */
   score: number;
+  /** How far the place spreads (a town's outline), when the provider knows. */
+  extent?: Bbox;
 }
 
 /** [minLon, minLat, maxLon, maxLat] */

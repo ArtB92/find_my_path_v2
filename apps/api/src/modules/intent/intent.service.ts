@@ -6,6 +6,7 @@ import { parseWithRules } from "./intent.rules";
 import type { LlmIntent } from "./intent.schema";
 
 const DEFAULT_BIKE = "road";
+const PARTLY_READ = ["Part of your request wasn't understood, so this route may not follow all of it."];
 
 function toPlace(text: string, pins: Pin[]): PlaceRef {
   const pin = /^pin:([A-Z])$/i.exec(text.trim());
@@ -29,11 +30,13 @@ export function createIntentService({ llm }: { llm: IntentLlmAdapter | null }) {
       throw new DomainError("intent_unclear", "Where should the ride start? Try “60 km loop from Versailles”, or fill in the route settings.");
     }
     try {
-      return await llm.extract(query, pins, signal);
+      const read = await llm.extract(query, pins, signal);
+      // The rules found a start and something route-like: a small model saying "not a route" is the one that's wrong.
+      return read.isRouteRequest || !quick ? read : { ...quick.intent, notes: PARTLY_READ };
     } catch (err) {
       if (!quick || !(err instanceof DomainError) || err.code !== "upstream_unavailable") throw err;
       console.warn(`intent: ${err.message} Using the quick reading instead.`);
-      return { ...quick.intent, notes: ["Part of your request wasn't understood, so this route may not follow all of it."] };
+      return { ...quick.intent, notes: PARTLY_READ };
     }
   }
 
@@ -57,6 +60,8 @@ export function createIntentService({ llm }: { llm: IntentLlmAdapter | null }) {
         elevationGainM: raw.elevationGainM,
         bike: raw.bike ?? DEFAULT_BIKE,
         outAndBack: raw.outAndBack,
+        avoid: raw.avoid.map((a) => toPlace(a, pins)),
+        direction: loop && raw.via.length === 0 ? raw.direction : null,
       };
       const checked = RouteIntentSchema.safeParse(intent);
       if (!checked.success) {

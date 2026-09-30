@@ -1,9 +1,9 @@
-import type { LatLon, Pin, PlaceRef, Route, RouteIntent, RouteWaypoint, TrackPoint } from "@find-my-path/shared";
+import type { Compass, LatLon, Pin, PlaceRef, Route, RouteIntent, RouteWaypoint, TrackPoint } from "@find-my-path/shared";
 import { mapWithConcurrency } from "../../lib/concurrency";
 import { DomainError } from "../../lib/errors";
-import type { GeocodingService } from "../geocoding";
-import type { RoutingAdapter } from "../routing";
-import { elevationStats, haversineM, overlapRatio, pathLengthM, trackLengthM, trimSpurs } from "./planner.geometry";
+import type { GeocodedPlace, GeocodingService } from "../geocoding";
+import type { NoGoZone, RoutingAdapter } from "../routing";
+import { destination, elevationStats, haversineM, localPlane, overlapRatio, pathLengthM, trackLengthM, trimSpurs } from "./planner.geometry";
 import { bentLegs, ellipseLoop, outAndBack, scaleForLength, type Shape } from "./planner.shapes";
 
 interface Deps {
@@ -78,6 +78,39 @@ function potential(c: Candidate, t: Targets, penaliseOverlap: boolean) {
 
 /** Eight directions, opposite ones first, so a round cut short by the time budget still covers every side. */
 const HEADINGS = [0, 180, 90, 270, 45, 225, 135, 315];
+const COMPASS_DEG: Record<Compass, number> = { N: 0, NE: 45, E: 90, SE: 135, S: 180, SW: 225, W: 270, NW: 315 };
+/** A loop asked to head somewhere keeps its far side within 45° of that direction. */
+const DIRECTION_SPREAD = [0, -25, 25, -45, 45];
+
+interface Zone extends NoGoZone {
+  name: string;
+}
+
+/** Radius of the circle to keep out of: the place's outline when known, else a typical size for its kind. */
+function zoneRadiusM(place: GeocodedPlace): number {
+  if (place.extent) {
+    const [minLon, minLat, maxLon, maxLat] = place.extent;
+    const widthM = haversineM({ lat: place.lat, lon: minLon }, { lat: place.lat, lon: maxLon });
+    const heightM = haversineM({ lat: minLat, lon: place.lon }, { lat: maxLat, lon: place.lon });
+    return Math.min(Math.max((0.45 * (widthM + heightM)) / 2, 300), 5000);
+  }
+  return { town: 1500, area: 2000, street: 200, address: 300, poi: 300 }[place.kind];
+}
+
+/** Shaping points that fall in a zone move just outside it, so the router isn't asked to go there. */
+function moveOutOfZones(points: LatLon[], zones: Zone[]): LatLon[] {
+  return points.map((p) => {
+    const zone = zones.find((z) => haversineM(p, z) < z.radiusM);
+    if (!zone) return p;
+    const { x, y } = localPlane(zone).toXY(p);
+    const bearing = x === 0 && y === 0 ? 0 : (Math.atan2(x, y) * 180) / Math.PI;
+    return destination(zone, bearing, zone.radiusM + 500);
+  });
+}
+
+/** Router no-go zones are circles, so a track may graze the edge; entering well inside is a miss. */
+const entersZone = (track: TrackPoint[], zones: Zone[]) =>
+  zones.some((z) => track.some(([lon, lat]) => haversineM({ lat, lon }, z) < 0.8 * z.radiusM));
 
 export function createPlannerService({ geocoding, routing, budgetMs = PLAN_BUDGET_MS }: Deps) {
   async function resolvePlace(ref: PlaceRef, pins: Pin[], preferArea: boolean, signal?: AbortSignal): Promise<Resolved> {
@@ -91,17 +124,30 @@ export function createPlannerService({ geocoding, routing, budgetMs = PLAN_BUDGE
     return { lat: place.lat, lon: place.lon, name: place.name };
   }
 
+  async function resolveZone(ref: PlaceRef, pins: Pin[], signal?: AbortSignal): Promise<Zone> {
+    if (ref.type === "pin") return { ...(await resolvePlace(ref, pins, false, signal)), radiusM: 300 };
+    const place = await geocoding.resolve(ref.text, { preferArea: true, signal });
+    return { lat: place.lat, lon: place.lon, name: place.name, radiusM: zoneRadiusM(place) };
+  }
+
   return {
     async plan(intent: RouteIntent, pins: Pin[], signal?: AbortSignal): Promise<Route> {
       const startedAt = Date.now();
       const outOfTime = () => Date.now() - startedAt > budgetMs;
       let routingCalls = 0;
-      const [start, end, ...vias] = await Promise.all([
-        resolvePlace(intent.start, pins, false, signal),
-        intent.end ? resolvePlace(intent.end, pins, false, signal) : null,
-        ...intent.via.map((v) => resolvePlace(v.place, pins, v.kind === "area", signal)),
+      const [[start, end, ...vias], zones] = await Promise.all([
+        Promise.all([
+          resolvePlace(intent.start, pins, false, signal),
+          intent.end ? resolvePlace(intent.end, pins, false, signal) : null,
+          ...intent.via.map((v) => resolvePlace(v.place, pins, v.kind === "area", signal)),
+        ]),
+        Promise.all(intent.avoid.map((ref) => resolveZone(ref, pins, signal))),
       ]);
       const via = vias as Resolved[];
+      for (const anchor of [start!, ...(end ? [end] : []), ...via]) {
+        const zone = zones.find((z) => haversineM(anchor, z) < z.radiusM);
+        if (zone) throw new DomainError("bad_request", `${anchor.name} is inside ${zone.name}, which you asked to avoid.`);
+      }
       const isLoop = !end || haversineM(start!, end) < SAME_PLACE_M;
       const finish = isLoop ? start! : end;
       const notes: string[] = [];
@@ -120,16 +166,17 @@ export function createPlannerService({ geocoding, routing, budgetMs = PLAN_BUDGE
       const penaliseOverlap = !intent.outAndBack;
 
       async function evaluate(shape: Shape, scale: number): Promise<Candidate | null> {
-        const waypoints = shape.waypoints(scale);
+        const waypoints = moveOutOfZones(shape.waypoints(scale), zones);
         let track: TrackPoint[];
         routingCalls++;
         try {
-          track = await routing.route(waypoints, intent.bike, signal);
+          track = await routing.route(waypoints, intent.bike, { avoid: zones, signal });
         } catch (err) {
           // A shaping point in a lake or a military zone only rules out this candidate.
           if (err instanceof DomainError && err.code === "no_route" && shape.minScale !== scale) return null;
           throw err;
         }
+        if (entersZone(track, zones)) return null;
         if (penaliseOverlap) track = trimSpurs(track, { keep });
         const lengthM = trackLengthM(track);
         const straightM = Math.max(pathLengthM(waypoints), 1);
@@ -158,7 +205,16 @@ export function createPlannerService({ geocoding, routing, budgetMs = PLAN_BUDGE
         return best;
       }
 
-      const starts = buildStarts({ start: start!, anchors, isLoop, via, targets, outAndBack: intent.outAndBack });
+      const starts = buildStarts({
+        start: start!,
+        anchors,
+        isLoop,
+        via,
+        targets,
+        outAndBack: intent.outAndBack,
+        direction: intent.direction,
+        detour: zones.length > 0,
+      });
       let found = 0;
       const firstRound = (
         await mapWithConcurrency(starts, PARALLEL_ROUTES, async ({ shape, scale }) => {
@@ -168,7 +224,10 @@ export function createPlannerService({ geocoding, routing, budgetMs = PLAN_BUDGE
           return c;
         })
       ).filter((c): c is Candidate => c !== null);
-      if (firstRound.length === 0) throw new DomainError("no_route", "We couldn't find a rideable route here.");
+      if (firstRound.length === 0) {
+        const around = zones.length ? ` that stays out of ${zones.map((z) => z.name).join(" and ")}` : "";
+        throw new DomainError("no_route", `We couldn't find a rideable route here${around}.`);
+      }
 
       const shortlist = [...firstRound]
         .sort((a, b) => potential(a, targets, penaliseOverlap) - potential(b, targets, penaliseOverlap))
@@ -211,18 +270,23 @@ interface StartOptions {
   via: LatLon[];
   targets: Targets;
   outAndBack: boolean;
+  direction: Compass | null;
+  /** Places to avoid: worth trying routes bent to either side even when the straight one looks fine. */
+  detour: boolean;
 }
 
 /** The candidate shapes worth trying for this request, with a fixed scale when there's no distance to aim for. */
-function buildStarts({ start, anchors, isLoop, via, targets, outAndBack: backAllowed }: StartOptions) {
+function buildStarts({ start, anchors, isLoop, via, targets, outAndBack: backAllowed, direction, detour }: StartOptions) {
   const starts: { shape: Shape; scale?: number }[] = [];
   const wantsClimb = targets.elevationM !== null;
 
   if (isLoop && via.length === 0) {
-    // Try every direction: the terrain, and so the climbing, differs a lot from one side to another.
-    starts.push(...HEADINGS.map((h) => ({ shape: ellipseLoop(start, h) })));
-    if (wantsClimb) starts.push(...HEADINGS.map((h) => ({ shape: ellipseLoop(start, h, { aspect: 1.8 }) })));
-    if (backAllowed) starts.push(...HEADINGS.map((h) => ({ shape: outAndBack(start, h) })));
+    // Try every direction (or every angle around the one asked): the terrain, and so the climbing,
+    // differs a lot from one side to another.
+    const headings = direction ? DIRECTION_SPREAD.map((d) => (COMPASS_DEG[direction] + d + 360) % 360) : HEADINGS;
+    starts.push(...headings.map((h) => ({ shape: ellipseLoop(start, h) })));
+    if (wantsClimb) starts.push(...headings.map((h) => ({ shape: ellipseLoop(start, h, { aspect: 1.8 }) })));
+    if (backAllowed) starts.push(...headings.map((h) => ({ shape: outAndBack(start, h) })));
     return starts;
   }
 
@@ -236,6 +300,7 @@ function buildStarts({ start, anchors, isLoop, via, targets, outAndBack: backAll
     // No distance to hit: go straight through the anchors unless that means doubling back.
     starts.push({ shape: variants[0]!, scale: 0 });
     if (isLoop && !backAllowed) starts.push(...variants.map((shape) => ({ shape, scale: via.length === 1 ? 0.25 : 0.12 })));
+    else if (detour) starts.push(...variants.map((shape) => ({ shape, scale: 0.3 })));
   }
   return starts;
 }

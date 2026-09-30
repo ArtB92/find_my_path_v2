@@ -1,4 +1,4 @@
-import type { Bike, PlaceRef, RouteIntent, Via } from "@find-my-path/shared";
+import type { Bike, Compass, PlaceRef, RouteIntent, Via } from "@find-my-path/shared";
 
 /** The editable version of a RouteIntent: every field as the rider types it. */
 export interface RouteForm {
@@ -10,6 +10,9 @@ export interface RouteForm {
   elevationGainM: string;
   bike: Bike;
   outAndBack: boolean;
+  /** Places to stay out of, comma separated. */
+  avoid: string;
+  direction: Compass | "";
 }
 
 export const emptyForm: RouteForm = {
@@ -21,6 +24,8 @@ export const emptyForm: RouteForm = {
   elevationGainM: "",
   bike: "road",
   outAndBack: false,
+  avoid: "",
+  direction: "",
 };
 
 const placeToText = (p: PlaceRef) => (p.type === "pin" ? `Pin ${p.label}` : p.text);
@@ -42,6 +47,8 @@ export function intentToForm(intent: RouteIntent): RouteForm {
     elevationGainM: intent.elevationGainM?.toString() ?? "",
     bike: intent.bike,
     outAndBack: intent.outAndBack,
+    avoid: intent.avoid.map(placeToText).join(", "),
+    direction: intent.direction ?? "",
   };
 }
 
@@ -61,5 +68,10 @@ export function formToIntent(form: RouteForm): RouteIntent | string {
     elevationGainM,
     bike: form.bike,
     outAndBack: form.outAndBack,
+    avoid: form.avoid
+      .split(",")
+      .filter((t) => t.trim())
+      .map(textToPlace),
+    direction: form.loop && form.direction ? form.direction : null,
   };
 }

@@ -28,6 +28,10 @@ export const ViaSchema = z.object({
 });
 export type Via = z.infer<typeof ViaSchema>;
 
+/** Where a loop should head, as a compass point. */
+export const CompassSchema = z.enum(["N", "NE", "E", "SE", "S", "SW", "W", "NW"]);
+export type Compass = z.infer<typeof CompassSchema>;
+
 export const RouteIntentSchema = z.object({
   start: PlaceRefSchema,
   /** null means a loop back to the start. */
@@ -38,6 +42,10 @@ export const RouteIntentSchema = z.object({
   bike: BikeSchema,
   /** Rider explicitly accepts riding out and back on the same roads. */
   outAndBack: z.boolean(),
+  /** Towns or areas the route must stay out of. */
+  avoid: z.array(PlaceRefSchema).max(8),
+  /** Side of the start a loop should explore; ignored when stops already set the shape. */
+  direction: CompassSchema.nullable(),
 });
 export type RouteIntent = z.infer<typeof RouteIntentSchema>;
 

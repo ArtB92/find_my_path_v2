@@ -11,6 +11,8 @@ export const LlmIntentSchema = z.object({
   elevationGainM: z.number().nullable(),
   bike: z.enum(["road", "gravel", "trekking"]).nullable(),
   outAndBack: z.boolean(),
+  avoid: z.array(z.string()),
+  direction: z.enum(["N", "NE", "E", "SE", "S", "SW", "W", "NW"]).nullable(),
   notes: z.array(z.string()),
 });
 export type LlmIntent = z.infer<typeof LlmIntentSchema>;

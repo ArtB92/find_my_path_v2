@@ -14,6 +14,8 @@ const base: LlmIntent = {
   elevationGainM: 500,
   bike: null,
   outAndBack: false,
+  avoid: [],
+  direction: null,
   notes: [],
 };
 
@@ -32,6 +34,8 @@ describe("intent service", () => {
       elevationGainM: 500,
       bike: "road",
       outAndBack: false,
+      avoid: [],
+      direction: null,
     });
   });
 

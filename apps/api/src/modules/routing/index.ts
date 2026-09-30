@@ -1,1 +1,1 @@
-export { createBrouterAdapter, createFakeRoutingAdapter, type RoutingAdapter } from "./routing.adapter";
+export { createBrouterAdapter, createFakeRoutingAdapter, type NoGoZone, type RoutingAdapter } from "./routing.adapter";
