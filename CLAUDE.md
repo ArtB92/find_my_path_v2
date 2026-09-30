@@ -26,6 +26,7 @@ Aim for a calm, crafted product, not a template. Before any UI work, load the `u
 ## Working conventions
 - Small PRs, one concern each. Conventional commit prefixes (`feat:`, `fix:`, `chore:`…).
 - Before calling work done: `pnpm lint && pnpm typecheck && pnpm test` (once those scripts exist).
+- Any change to reading requests, geocoding, routing or the planner must also pass `pnpm test:acceptance` against the running stack (`apps/api/test/acceptance/queries.ts`: the cyclist queries every PR must answer, each within 10 s). A request that goes wrong in real use becomes a new case there.
 - New backend module: load the `backend-module` skill.
 - Prefer editing existing files over adding new ones; no speculative abstractions, no dead code, no comments that restate code.
 - Don't read lockfiles, build output or `node_modules`; search with ripgrep and read only the lines you need.

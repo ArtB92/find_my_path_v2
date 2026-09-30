@@ -89,10 +89,17 @@ function score(c: Candidate, t: Targets, penaliseOverlap: boolean) {
   return 2 * distanceError(c, t) + 1.5 * elevationError(c.ascentM, t) + (penaliseOverlap ? 3 * c.overlap : 0) + ride(c);
 }
 
-/** First-round ranking, before the distance is tuned: judge climbing per km, not in total. */
+const projectedAscent = (c: Candidate, t: Targets) => (t.distanceM ? (c.ascentM * t.distanceM) / c.lengthM : c.ascentM);
+
+/**
+ * First-round ranking, before the distance is tuned: judge climbing per km, not in total. A shape
+ * on course for the climbing asked comes first, even if it rides a climb or a road twice.
+ */
 function potential(c: Candidate, t: Targets, penaliseOverlap: boolean) {
-  const projectedAscent = t.distanceM ? (c.ascentM * t.distanceM) / c.lengthM : c.ascentM;
-  return 1.5 * elevationError(projectedAscent, t) + (penaliseOverlap ? 3 * c.overlap : 0) + 0.2 * distanceError(c, t) + ride(c);
+  const onCourse = withinTolerance({ ...c, ascentM: projectedAscent(c, t), lengthM: t.distanceM ?? c.lengthM }, t);
+  return (
+    (onCourse ? 0 : 10) + 1.5 * elevationError(projectedAscent(c, t), t) + (penaliseOverlap ? 3 * c.overlap : 0) + 0.2 * distanceError(c, t) + ride(c)
+  );
 }
 
 /** Eight directions, opposite ones first, so a round cut short by the time budget still covers every side. */

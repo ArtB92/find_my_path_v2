@@ -50,4 +50,15 @@ describe("geocoding service", () => {
     await expect(service.resolve("Lyon")).rejects.toMatchObject({ code: "outside_service_area" });
     await expect(service.resolve("Nowhereville")).rejects.toMatchObject({ code: "place_not_found" });
   });
+
+  it("reads a town elsewhere as that town, not a street named after it here", async () => {
+    const service = createGeocodingService({
+      ban: {
+        search: async () => [at("Lyon", 45.76, 4.83, { score: 0.88 }), at("Rue de Lyon, Paris", 48.848, 2.372, { kind: "street", score: 0.72 })],
+      },
+      photon: createFakeGeocoder({}),
+      serviceArea: idf,
+    });
+    await expect(service.resolve("Lyon")).rejects.toMatchObject({ code: "outside_service_area" });
+  });
 });

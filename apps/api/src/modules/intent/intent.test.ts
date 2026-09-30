@@ -56,6 +56,15 @@ describe("intent service", () => {
     expect(notes).toHaveLength(1);
   });
 
+  it("asks for a clearer request when neither the rules nor the model could read it", async () => {
+    const service = createIntentService({
+      llm: createFakeIntentAdapter(() => {
+        throw new DomainError("upstream_unavailable", "The local language model took too long to answer.");
+      }),
+    });
+    await expect(service.parse("hello, how are you?", [])).rejects.toMatchObject({ code: "intent_unclear" });
+  });
+
   it("turns an out-and-back to a destination into a loop through it", async () => {
     const { intent } = await createIntentService({ llm: null }).parse("aller-retour de Paris à Versailles", []);
     expect(intent).toMatchObject({ start: { type: "text", text: "Paris" }, end: null, outAndBack: true });

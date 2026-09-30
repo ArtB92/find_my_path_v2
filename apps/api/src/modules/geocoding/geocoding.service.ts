@@ -31,6 +31,11 @@ export function createGeocodingService({ ban, photon, serviceArea }: Deps) {
     const [banRes] = await Promise.allSettled([ban.search(text, { bbox: serviceArea.bbox, signal })]);
     const banAll = banRes.status === "fulfilled" ? banRes.value : [];
     const banHit = banAll.find((p) => isInBbox(p, serviceArea.bbox));
+    // "Lyon" is the town, not the rue de Lyon in Paris: a better-matching town elsewhere wins over a street here.
+    const topBan = banAll[0];
+    if (!preferArea && topBan?.kind === "town" && !isInBbox(topBan, serviceArea.bbox) && banHit?.kind !== "town" && topBan.score > (banHit?.score ?? 0)) {
+      throw new DomainError("outside_service_area", `"${text}" is outside ${serviceArea.name}, the only area supported for now.`);
+    }
     const goodBan = banHit && banHit.score >= BAN_MIN_SCORE ? banHit : undefined;
     // The public Photon server often takes seconds: don't wait for it when the address base is sure.
     if (goodBan && !preferArea) return goodBan;

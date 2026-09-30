@@ -50,7 +50,7 @@ When no route matches the request within 10% on distance and 20% on climbing, th
 pnpm install
 pnpm dev          # web on :3000, api on :8787
 pnpm lint && pnpm typecheck && pnpm test
-pnpm bench        # times real requests against the running app (docker compose up)
+pnpm test:acceptance   # every query in apps/api/test/acceptance/queries.ts, against the running app (docker compose up)
 ```
 
 `pnpm dev` expects BRouter on `localhost:17777` and Ollama on `localhost:11434` (for example `docker compose up brouter ollama`, with their ports published).
