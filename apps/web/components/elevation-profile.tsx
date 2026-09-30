@@ -3,6 +3,7 @@
 import type { TrackPoint } from "@find-my-path/shared";
 import { useMemo, useRef, useState, useEffect, type KeyboardEvent, type PointerEvent } from "react";
 import { formatKm, formatM } from "@/lib/format";
+import { bisect, cumulativeKm } from "@/lib/track";
 
 interface Props {
   track: TrackPoint[];
@@ -13,34 +14,10 @@ interface Props {
 const HEIGHT = 150;
 const PAD = { top: 12, right: 12, bottom: 22, left: 40 };
 
-function cumulativeKm(track: TrackPoint[]): number[] {
-  const out = [0];
-  for (let i = 1; i < track.length; i++) {
-    const [lon1, lat1] = track[i - 1]!;
-    const [lon2, lat2] = track[i]!;
-    const dx = (lon2 - lon1) * 111.32 * Math.cos((lat1 * Math.PI) / 180);
-    const dy = (lat2 - lat1) * 110.57;
-    out.push(out[i - 1]! + Math.hypot(dx, dy));
-  }
-  return out;
-}
-
 function niceStep(range: number, targetTicks: number) {
   const raw = range / targetTicks;
   const pow = 10 ** Math.floor(Math.log10(raw));
   return [1, 2, 5, 10].map((m) => m * pow).find((s) => s >= raw) ?? raw;
-}
-
-/** Index of the last value <= x in a sorted array. */
-function bisect(values: number[], x: number) {
-  let lo = 0;
-  let hi = values.length - 1;
-  while (lo < hi) {
-    const mid = Math.ceil((lo + hi) / 2);
-    if (values[mid]! <= x) lo = mid;
-    else hi = mid - 1;
-  }
-  return lo;
 }
 
 export function ElevationProfile({ track, hoverIndex, onHover }: Props) {

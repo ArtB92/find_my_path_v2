@@ -5,6 +5,7 @@ import * as maplibregl from "maplibre-gl";
 import type { GeoJSONSource, LngLatBoundsLike, MapMouseEvent } from "maplibre-gl";
 import { useEffect, useRef } from "react";
 import { darkMapStyle } from "@/lib/map-style";
+import { cumulativeKm, lngLatAt } from "@/lib/track";
 
 interface Props {
   route: Route | null;
@@ -16,8 +17,8 @@ interface Props {
 }
 
 const MAP_STYLE = process.env.NEXT_PUBLIC_MAP_STYLE_URL ?? darkMapStyle;
-/** Warm clay reads best against the night-blue base map. */
-const ROUTE_COLOR = "#e8804f";
+/** One lap of the direction dot, start to finish. */
+const LAP_MS = 3000;
 const ILE_DE_FRANCE: LngLatBoundsLike = [
   [1.44, 48.12],
   [3.56, 49.24],
@@ -25,6 +26,8 @@ const ILE_DE_FRANCE: LngLatBoundsLike = [
 const EMPTY = { type: "FeatureCollection" as const, features: [] };
 
 maplibregl.setWorkerUrl("/maplibre/maplibre-gl-worker.mjs");
+
+const token = (name: string) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 
 function markerEl(className: string, text = "") {
   const el = document.createElement("div");
@@ -49,20 +52,34 @@ export default function RouteMap({ route, pins, addingPin, onAddPin, onMovePin, 
     const m = new maplibregl.Map({ container: container.current, style: MAP_STYLE, bounds: ILE_DE_FRANCE, attributionControl: { compact: true } });
     m.addControl(new maplibregl.NavigationControl({ showCompass: false }), "top-right");
     m.on("style.load", () => {
-      m.addSource("route", { type: "geojson", data: EMPTY });
+      const [from, to, ink] = [token("--brand-from"), token("--brand-to"), token("--brand-ink")];
+      m.addSource("route", { type: "geojson", data: EMPTY, lineMetrics: true });
+      m.addSource("route-dot", { type: "geojson", data: EMPTY });
       m.addLayer({
         id: "route-casing",
         type: "line",
         source: "route",
         layout: { "line-join": "round", "line-cap": "round" },
-        paint: { "line-color": "#141c30", "line-width": 8, "line-opacity": 0.8 },
+        paint: { "line-color": ink, "line-width": 8, "line-opacity": 0.9 },
       });
       m.addLayer({
         id: "route-line",
         type: "line",
         source: "route",
         layout: { "line-join": "round", "line-cap": "round" },
-        paint: { "line-color": ROUTE_COLOR, "line-width": 4 },
+        paint: { "line-width": 4.5, "line-gradient": ["interpolate", ["linear"], ["line-progress"], 0, from, 1, to] },
+      });
+      m.addLayer({
+        id: "route-dot-halo",
+        type: "circle",
+        source: "route-dot",
+        paint: { "circle-radius": 16, "circle-color": to, "circle-opacity": 0.45, "circle-blur": 0.5 },
+      });
+      m.addLayer({
+        id: "route-dot",
+        type: "circle",
+        source: "route-dot",
+        paint: { "circle-radius": 7, "circle-color": ink, "circle-stroke-color": to, "circle-stroke-width": 3 },
       });
     });
     m.on("click", (e: MapMouseEvent) => {
@@ -117,7 +134,7 @@ export default function RouteMap({ route, pins, addingPin, onAddPin, onMovePin, 
           element: markerEl(
             w.role === "via"
               ? "size-3 rounded-full border-2 border-white bg-ink shadow"
-              : "size-4 rounded-full border-[3px] border-white bg-moss shadow-md",
+              : "size-4 rounded-full border-[3px] border-white bg-brand shadow-md",
           ),
         })
           .setLngLat([w.lon, w.lat])
@@ -130,6 +147,23 @@ export default function RouteMap({ route, pins, addingPin, onAddPin, onMovePin, 
     };
     if (m.getSource("route")) draw();
     else m.once("style.load", draw);
+  }, [route]);
+
+  useEffect(() => {
+    const m = map.current;
+    if (!m || !route || route.track.length < 2 || matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    const km = cumulativeKm(route.track);
+    let frame = 0;
+    const tick = (now: number) => {
+      const lngLat = lngLatAt(route.track, km, (now % LAP_MS) / LAP_MS);
+      m.getSource<GeoJSONSource>("route-dot")?.setData({ type: "Point", coordinates: lngLat });
+      frame = requestAnimationFrame(tick);
+    };
+    frame = requestAnimationFrame(tick);
+    return () => {
+      cancelAnimationFrame(frame);
+      m.getSource<GeoJSONSource>("route-dot")?.setData(EMPTY);
+    };
   }, [route]);
 
   useEffect(() => {
