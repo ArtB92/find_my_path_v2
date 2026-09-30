@@ -12,7 +12,7 @@
     "lint": "eslint .",
     "typecheck": "pnpm -r typecheck",
     "test": "vitest run",
-    "bench": "pnpm --filter @find-my-path/api bench"
+    "test:acceptance": "pnpm --filter @find-my-path/api test:acceptance"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.0",
