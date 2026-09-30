@@ -1,0 +1,24 @@
+{
+  "name": "@find-my-path/api",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch --env-file-if-exists=../../.env src/server.ts",
+    "build": "esbuild src/server.ts --bundle --platform=node --target=node22 --format=esm --outfile=dist/server.js --banner:js=\"import{createRequire}from'module';const require=createRequire(import.meta.url);\"",
+    "start": "node dist/server.js",
+    "typecheck": "tsc -p tsconfig.json",
+    "bench": "tsx src/bench.ts"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.129.0",
+    "@find-my-path/shared": "workspace:*",
+    "@hono/node-server": "^2.1.0",
+    "hono": "^4.13.0",
+    "zod": "^4.6.0"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.0",
+    "tsx": "^4.23.0"
+  }
+}

@@ -1,0 +1,150 @@
+"use client";
+
+import type { Pin, Route } from "@find-my-path/shared";
+import * as maplibregl from "maplibre-gl";
+import type { GeoJSONSource, LngLatBoundsLike, MapMouseEvent } from "maplibre-gl";
+import { useEffect, useRef } from "react";
+import { darkMapStyle } from "@/lib/map-style";
+
+interface Props {
+  route: Route | null;
+  pins: Pin[];
+  addingPin: boolean;
+  onAddPin: (lat: number, lon: number) => void;
+  onMovePin: (label: string, lat: number, lon: number) => void;
+  hoverIndex: number | null;
+}
+
+const MAP_STYLE = process.env.NEXT_PUBLIC_MAP_STYLE_URL ?? darkMapStyle;
+/** Warm clay reads best against the night-blue base map. */
+const ROUTE_COLOR = "#e8804f";
+const ILE_DE_FRANCE: LngLatBoundsLike = [
+  [1.44, 48.12],
+  [3.56, 49.24],
+];
+const EMPTY = { type: "FeatureCollection" as const, features: [] };
+
+maplibregl.setWorkerUrl("/maplibre/maplibre-gl-worker.mjs");
+
+function markerEl(className: string, text = "") {
+  const el = document.createElement("div");
+  el.className = className;
+  el.textContent = text;
+  return el;
+}
+
+export default function RouteMap({ route, pins, addingPin, onAddPin, onMovePin, hoverIndex }: Props) {
+  const container = useRef<HTMLDivElement>(null);
+  const map = useRef<maplibregl.Map | null>(null);
+  const pinMarkers = useRef<maplibregl.Marker[]>([]);
+  const waypointMarkers = useRef<maplibregl.Marker[]>([]);
+  const hoverMarker = useRef<maplibregl.Marker | null>(null);
+  const handlers = useRef({ addingPin, onAddPin, onMovePin });
+  useEffect(() => {
+    handlers.current = { addingPin, onAddPin, onMovePin };
+  });
+
+  useEffect(() => {
+    if (!container.current) return;
+    const m = new maplibregl.Map({ container: container.current, style: MAP_STYLE, bounds: ILE_DE_FRANCE, attributionControl: { compact: true } });
+    m.addControl(new maplibregl.NavigationControl({ showCompass: false }), "top-right");
+    m.on("style.load", () => {
+      m.addSource("route", { type: "geojson", data: EMPTY });
+      m.addLayer({
+        id: "route-casing",
+        type: "line",
+        source: "route",
+        layout: { "line-join": "round", "line-cap": "round" },
+        paint: { "line-color": "#141c30", "line-width": 8, "line-opacity": 0.8 },
+      });
+      m.addLayer({
+        id: "route-line",
+        type: "line",
+        source: "route",
+        layout: { "line-join": "round", "line-cap": "round" },
+        paint: { "line-color": ROUTE_COLOR, "line-width": 4 },
+      });
+    });
+    m.on("click", (e: MapMouseEvent) => {
+      if (handlers.current.addingPin) handlers.current.onAddPin(e.lngLat.lat, e.lngLat.lng);
+    });
+    map.current = m;
+    return () => m.remove();
+  }, []);
+
+  useEffect(() => {
+    map.current?.getCanvas().style.setProperty("cursor", addingPin ? "crosshair" : "");
+  }, [addingPin]);
+
+  useEffect(() => {
+    const m = map.current;
+    if (!m) return;
+    pinMarkers.current.forEach((mk) => mk.remove());
+    pinMarkers.current = pins.map((pin) => {
+      const marker = new maplibregl.Marker({
+        element: markerEl("grid size-7 place-items-center rounded-full border-2 border-white bg-ink font-mono text-xs font-medium text-paper shadow-md", pin.label),
+        draggable: true,
+      })
+        .setLngLat([pin.lon, pin.lat])
+        .addTo(m);
+      marker.on("dragend", () => {
+        const { lat, lng } = marker.getLngLat();
+        handlers.current.onMovePin(pin.label, lat, lng);
+      });
+      return marker;
+    });
+  }, [pins]);
+
+  useEffect(() => {
+    const m = map.current;
+    if (!m) return;
+    const draw = () => {
+      const source = m.getSource<GeoJSONSource>("route");
+      if (!source) return;
+      waypointMarkers.current.forEach((mk) => mk.remove());
+      waypointMarkers.current = [];
+      if (!route) {
+        source.setData(EMPTY);
+        return;
+      }
+      source.setData({
+        type: "Feature",
+        properties: {},
+        geometry: { type: "LineString", coordinates: route.track.map(([lon, lat]) => [lon, lat]) },
+      });
+      waypointMarkers.current = route.waypoints.map((w) =>
+        new maplibregl.Marker({
+          element: markerEl(
+            w.role === "via"
+              ? "size-3 rounded-full border-2 border-white bg-ink shadow"
+              : "size-4 rounded-full border-[3px] border-white bg-moss shadow-md",
+          ),
+        })
+          .setLngLat([w.lon, w.lat])
+          .setPopup(new maplibregl.Popup({ offset: 12, closeButton: false }).setText(w.name))
+          .addTo(m),
+      );
+      const bounds = new maplibregl.LngLatBounds();
+      route.track.forEach(([lon, lat]) => bounds.extend([lon, lat]));
+      m.fitBounds(bounds, { padding: 48, duration: 600 });
+    };
+    if (m.getSource("route")) draw();
+    else m.once("style.load", draw);
+  }, [route]);
+
+  useEffect(() => {
+    const m = map.current;
+    const point = hoverIndex !== null ? route?.track[hoverIndex] : undefined;
+    if (!m || !point) {
+      hoverMarker.current?.remove();
+      hoverMarker.current = null;
+      return;
+    }
+    hoverMarker.current ??= new maplibregl.Marker({
+      element: markerEl("size-3.5 rounded-full border-2 border-white bg-route shadow-md"),
+    });
+    hoverMarker.current.setLngLat([point[0], point[1]]).addTo(m);
+  }, [hoverIndex, route]);
+
+  return <div ref={container} className="h-full w-full" aria-label="Map" role="region" />;
+}

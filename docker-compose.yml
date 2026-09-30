@@ -1,0 +1,64 @@
+services:
+  brouter:
+    build: docker/brouter
+    environment:
+      BROUTER_TILES: ${BROUTER_TILES:-E0_N45}
+    volumes:
+      - brouter-segments:/opt/brouter/segments4
+    restart: unless-stopped
+
+  # Free local language model that reads the free-text requests.
+  ollama:
+    image: ollama/ollama:latest
+    entrypoint: ["/bin/sh", "-c"]
+    # Serves, and downloads the model on first start (about 2 GB).
+    command: ["ollama serve & sleep 3 && ollama pull $$OLLAMA_MODEL && wait"]
+    environment:
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen2.5:3b}
+      OLLAMA_KEEP_ALIVE: 24h
+    volumes:
+      - ollama-models:/root/.ollama
+    restart: unless-stopped
+
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      BROUTER_URL: http://brouter:17777
+      OLLAMA_URL: ${OLLAMA_URL:-http://ollama:11434}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen2.5:3b}
+    # Starts without waiting: until BRouter has its data, route requests fail with a clear message.
+    depends_on:
+      - brouter
+      - ollama
+    restart: unless-stopped
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+    environment:
+      API_URL: http://api:8787
+    ports:
+      - "${WEB_PORT:-3000}:3000"
+    depends_on:
+      - api
+    restart: unless-stopped
+
+  # Rebuilds data/climbs from open map and elevation data: docker compose run --rm climbs
+  climbs:
+    build: tools/climbs
+    profiles: ["tools"]
+    command: ["--bbox", "1.44,48.12,3.56,49.24", "--out", "/out/ile-de-france.json"]
+    volumes:
+      - ./data/climbs:/out
+      - climbs-cache:/tools/cache
+
+volumes:
+  climbs-cache:
+  brouter-segments:
+  ollama-models:
