@@ -28,6 +28,15 @@ export function localPlane(origin: LatLon) {
   };
 }
 
+/** Compass bearing from `from` to `to` (0 = north, 90 = east), on a local flat plane. */
+export function bearingDeg(from: LatLon, to: LatLon): number {
+  const { x, y } = localPlane(from).toXY(to);
+  return ((Math.atan2(x, y) * 180) / Math.PI + 360) % 360;
+}
+
+/** Smallest angle between two compass bearings, 0 to 180. */
+export const angleDiffDeg = (a: number, b: number) => Math.abs(((a - b + 540) % 360) - 180);
+
 /** Point reached from `from` after `distanceM` along compass bearing `bearingDeg` (0 = north, 90 = east). */
 export function destination(from: LatLon, bearingDeg: number, distanceM: number): LatLon {
   const plane = localPlane(from);

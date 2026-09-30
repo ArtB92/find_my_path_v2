@@ -1,6 +1,6 @@
 import type { LatLon } from "@find-my-path/shared";
 import type { Climb } from "../climbs";
-import { haversineM, localPlane, pathLengthM } from "./planner.geometry";
+import { angleDiffDeg, haversineM, localPlane, pathLengthM } from "./planner.geometry";
 import { bentLegs, type Shape } from "./planner.shapes";
 
 export interface ClimbShape extends Shape {
@@ -23,11 +23,10 @@ const REACH = 0.38;
 const ROAD_FACTOR = 1.15;
 /** How much of the asked climbing the chosen climbs should give; the roads in between give the rest. */
 const SHARES = [0.3, 0.6, 0.9];
-const MAX_CLIMBS = 4;
+const MAX_CLIMBS = 8;
 const SAME_SIDE_DEG = 70;
 
 const toLatLon = ([lon, lat]: [number, number]): LatLon => ({ lat, lon });
-const angleDiff = (a: number, b: number) => Math.abs(((a - b + 540) % 360) - 180);
 const gainOf = (set: Climb[]) => set.reduce((sum, c) => sum + c.gainM, 0);
 
 /**
@@ -45,7 +44,7 @@ export function climbLoops({ start, climbs, distanceM, elevationM, headingDeg, m
   const usable = climbs
     .filter((c) => {
       const d = distanceTo(c);
-      return d > 300 && d < REACH * distanceM && (headingDeg === null || angleDiff(bearing(c), headingDeg) <= 60);
+      return d > 300 && d < REACH * distanceM && (headingDeg === null || angleDiffDeg(bearing(c), headingDeg) <= 60);
     })
     .sort((a, b) => b.gainM - a.gainM)
     .slice(0, 60);

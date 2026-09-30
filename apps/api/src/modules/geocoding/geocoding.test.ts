@@ -14,10 +14,10 @@ const at = (name: string, lat: number, lon: number, over: Partial<GeocodedPlace>
 });
 
 describe("geocoding service", () => {
-  it("prefers a confident address-base hit for towns and addresses", async () => {
+  it("takes a confident address-base hit for towns and addresses without waiting for OpenStreetMap", async () => {
     const service = createGeocodingService({
       ban: createFakeGeocoder({ versaille: at("Versailles", 48.8049, 2.1204) }),
-      photon: createFakeGeocoder({ versaille: at("Versailles (OSM)", 48.8, 2.13) }),
+      photon: { search: () => new Promise(() => {}) },
       serviceArea: idf,
     });
     expect((await service.resolve("Versaille")).name).toBe("Versailles");

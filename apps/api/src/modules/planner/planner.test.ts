@@ -6,6 +6,7 @@ import { createClimbIndex, type Climb } from "../climbs";
 import { createFakeRoutingAdapter } from "../routing";
 import { haversineM, localPlane, overlapRatio } from "./planner.geometry";
 import { createPlannerService, TOLERANCE } from "./planner.service";
+import { loopThrough, scaleForLength } from "./planner.shapes";
 
 const place = (name: string, lat: number, lon: number): GeocodedPlace => ({ name, lat, lon, kind: "town", score: 0.9 });
 const places = {
@@ -220,6 +221,45 @@ describe("planner", () => {
     expect(Date.now() - startedAt).toBeLessThan(300);
     expect(fake.calls.length).toBeLessThanOrEqual(8);
   });
+
+  it("drops routing calls still running at the cutoff and keeps the route already found", async () => {
+    const fake = createFakeRoutingAdapter();
+    const hangingRouting = {
+      route: async (...args: Parameters<typeof fake.route>) => {
+        if (fake.calls.length === 0) return fake.route(...args);
+        const signal = args[2]?.signal;
+        return new Promise<never>((_, reject) => signal?.addEventListener("abort", () => reject(signal.reason)));
+      },
+    };
+    const geocoding = createGeocodingService({
+      ban: createFakeGeocoder(places),
+      photon: createFakeGeocoder(places),
+      serviceArea: { bbox: [1.44, 48.12, 3.56, 49.24], name: "Île-de-France" },
+    });
+    const planner = createPlannerService({ geocoding, routing: hangingRouting, budgetMs: 20, cutoffMs: 60 });
+    const startedAt = Date.now();
+    const route = await planner.plan(intent({ end: text("Paris"), avoid: [text("Rambouillet")] }), []);
+    expect(Date.now() - startedAt).toBeLessThan(300);
+    expect(route.track.length).toBeGreaterThan(0);
+  });
 });
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+describe("loopThrough", () => {
+  it("passes the place and keeps the whole loop on the side asked", () => {
+    const { versailles: start, paris: via } = places;
+    const plane = localPlane(start);
+    const v = plane.toXY(via);
+    for (const side of [1, -1] as const) {
+      const shape = loopThrough(start, via, side);
+      const points = shape.waypoints(scaleForLength(shape, 100_000));
+      expect(points[0]).toEqual(start);
+      expect(points.at(-1)).toEqual(start);
+      expect(points).toContainEqual(via);
+      // Signed distance from the Versailles → Paris line, positive on the side asked.
+      const offsets = points.map(plane.toXY).map(({ x, y }) => ((v.x * y - v.y * x) / Math.hypot(v.x, v.y)) * side);
+      expect(Math.max(...offsets)).toBeGreaterThan(3 * -Math.min(...offsets));
+    }
+  });
+});
