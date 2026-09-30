@@ -19,6 +19,9 @@ type Phase = "idle" | "reading" | "routing";
 
 const LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
 
+const primaryButton =
+  "brand-fill rounded-md px-4 py-2.5 text-sm font-medium shadow-sm transition-[filter,opacity] duration-150 ease-out hover:brightness-110 active:brightness-95 disabled:opacity-50 disabled:hover:brightness-100";
+
 function download(route: Route) {
   const name = routeName(route);
   const url = URL.createObjectURL(new Blob([toGpx(route, name)], { type: "application/gpx+xml" }));
@@ -83,9 +86,22 @@ export function Planner() {
     <main className="flex h-dvh flex-col-reverse md:flex-row">
       <aside className="flex max-h-[60dvh] w-full shrink-0 flex-col overflow-y-auto border-line bg-paper md:max-h-none md:w-[400px] md:border-r">
         <div className="flex flex-col gap-6 p-5 md:p-6">
-          <header>
-            <h1 className="font-display text-xl font-semibold tracking-tight">FindMyPath</h1>
-            <p className="mt-1 text-sm text-ink-2">Describe the ride. Get a route you can load on your bike computer.</p>
+          <header className="border-b border-line pb-5">
+            <div className="flex items-center gap-3">
+              <svg viewBox="0 0 32 32" aria-hidden="true" className="size-9 shrink-0">
+                <rect width="32" height="32" rx="7" fill="url(#logo-gradient)" />
+                <defs>
+                  <linearGradient id="logo-gradient" x1="0" y1="0" x2="1" y2="1">
+                    <stop offset="0" stopColor="var(--brand-from)" />
+                    <stop offset="1" stopColor="var(--brand-to)" />
+                  </linearGradient>
+                </defs>
+                <path d="M7 22c4-9 7 2 11-6s5-6 7-4" fill="none" stroke="var(--brand-ink)" strokeWidth={3} strokeLinecap="round" />
+                <circle cx="25" cy="12" r="2.5" fill="var(--brand-ink)" />
+              </svg>
+              <h1 className="brand-text font-display text-xl leading-none font-semibold tracking-tight">FindMyPath</h1>
+            </div>
+            <p className="mt-3 text-sm text-ink-2">Describe the ride. Get a route you can load on your bike computer.</p>
           </header>
 
           <form
@@ -110,13 +126,13 @@ export function Planner() {
                 }
               }}
               placeholder="80 km loop from Versailles with 500 m of climbing"
-              className="resize-none rounded-md border border-line bg-surface px-3 py-2 text-base text-ink placeholder:text-ink-3 focus-visible:border-ink-2"
+              className="resize-none rounded-md border border-line bg-surface px-3 py-2 text-base text-ink placeholder:text-ink-3 focus-visible:border-brand"
             />
             <div className="flex items-center gap-2">
               <button
                 type="submit"
                 disabled={busy || query.trim().length < 3}
-                className="rounded-md bg-moss px-4 py-2 text-sm font-medium text-moss-ink transition-opacity duration-150 disabled:opacity-50"
+                className={primaryButton}
               >
                 {phase === "reading" ? "Reading…" : phase === "routing" ? "Finding the route…" : "Find a route"}
               </button>
@@ -125,7 +141,7 @@ export function Planner() {
                 aria-pressed={addingPin}
                 disabled={!nextLetter}
                 onClick={() => setAddingPin((v) => !v)}
-                className="rounded-md border border-line px-3 py-2 text-sm text-ink-2 transition-colors duration-150 hover:border-ink-3 aria-pressed:border-ink aria-pressed:bg-ink aria-pressed:text-paper"
+                className="rounded-md border border-line px-3 py-2.5 text-sm text-ink-2 transition-colors duration-150 hover:border-ink-3 disabled:opacity-50 aria-pressed:border-brand aria-pressed:bg-brand-soft aria-pressed:text-brand"
               >
                 {addingPin ? "Click the map…" : `Add pin ${nextLetter ?? ""}`}
               </button>
@@ -184,7 +200,7 @@ export function Planner() {
                 <button
                   type="button"
                   onClick={() => download(route)}
-                  className="self-start rounded-md bg-ink px-4 py-2 text-sm font-medium text-paper"
+                  className={`self-start ${primaryButton}`}
                 >
                   Download GPX
                 </button>

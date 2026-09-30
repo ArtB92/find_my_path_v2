@@ -31,7 +31,7 @@ const DIRECTIONS: { value: Compass; label: string }[] = [
 ];
 
 const inputClass =
-  "w-full rounded-md border border-line bg-surface px-3 py-2 text-sm text-ink placeholder:text-ink-3 focus-visible:border-ink-2";
+  "w-full rounded-md border border-line bg-surface px-3 py-2 text-sm text-ink placeholder:text-ink-3 focus-visible:border-brand";
 
 function Field({ label, id, children }: { label: string; id: string; children: ReactNode }) {
   return (
@@ -63,7 +63,7 @@ export function RouteFormFields({ form, onChange, onSubmit, busy }: Props) {
         <Switch.Root
           checked={form.loop}
           onCheckedChange={(v) => set("loop", v)}
-          className="relative h-5 w-9 rounded-full bg-line transition-colors duration-150 data-[state=checked]:bg-moss"
+          className="relative h-5 w-9 rounded-full bg-line transition-colors duration-150 data-[state=checked]:bg-brand"
         >
           <Switch.Thumb className="block size-4 translate-x-0.5 rounded-full bg-surface shadow transition-transform duration-150 ease-out data-[state=checked]:translate-x-[18px]" />
         </Switch.Root>
@@ -106,7 +106,7 @@ export function RouteFormFields({ form, onChange, onSubmit, busy }: Props) {
         ))}
         <button
           type="button"
-          className="self-start text-sm font-medium text-moss underline-offset-4 hover:underline"
+          className="self-start text-sm font-medium text-brand underline-offset-4 hover:underline"
           onClick={() => set("via", [...form.via, { text: "", kind: "point" }])}
         >
           Add a stop
@@ -159,7 +159,7 @@ export function RouteFormFields({ form, onChange, onSubmit, busy }: Props) {
             <ToggleGroup.Item
               key={b.value}
               value={b.value}
-              className="rounded-sm py-1.5 text-sm text-ink-2 transition-colors duration-150 ease-out data-[state=on]:bg-ink data-[state=on]:text-paper"
+              className="rounded-sm py-1.5 text-sm text-ink-2 transition-colors duration-150 ease-out data-[state=on]:bg-paper data-[state=on]:font-medium data-[state=on]:text-brand data-[state=on]:shadow-sm"
             >
               {b.label}
             </ToggleGroup.Item>
@@ -168,11 +168,11 @@ export function RouteFormFields({ form, onChange, onSubmit, busy }: Props) {
       </div>
 
       <label className="flex items-center gap-2 text-sm text-ink-2">
-        <input type="checkbox" checked={form.outAndBack} onChange={(e) => set("outAndBack", e.target.checked)} className="size-4 accent-[var(--moss)]" />
+        <input type="checkbox" checked={form.outAndBack} onChange={(e) => set("outAndBack", e.target.checked)} className="size-4 accent-[var(--brand)]" />
         Riding back the same way is fine
       </label>
 
-      <button type="submit" disabled={busy} className="rounded-md border border-ink px-4 py-2 text-sm font-medium text-ink transition-colors duration-150 hover:bg-ink hover:text-paper disabled:opacity-50">
+      <button type="submit" disabled={busy} className="rounded-md border border-brand px-4 py-2 text-sm font-medium text-brand transition-colors duration-150 hover:bg-brand-soft disabled:opacity-50">
         Update route
       </button>
     </form>

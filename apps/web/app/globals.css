@@ -5,39 +5,31 @@
 @import "@fontsource/ibm-plex-mono/500.css";
 @import "maplibre-gl/dist/maplibre-gl.css";
 
-/* Tokens: components use these, never raw colours. Topo-map palette: paper, moss, clay. */
+/*
+ * Tokens: components use these, never raw colours.
+ * Light panel on a night map; one accent, the indigo-to-violet of FindMyPath v1.
+ * The panel is light in every colour scheme on purpose: the map already carries the dark.
+ */
 :root {
-  --paper: #f4f1ea;
-  --surface: #fbf9f4;
-  --ink: #1f1d1a;
-  --ink-2: #4f4a43;
-  --ink-3: #6b655c;
-  --line: #ddd6c8;
-  --moss: #4f6b3a;
-  --moss-ink: #ffffff;
-  --route: #b5532f;
-  --route-fill: color-mix(in oklab, var(--route) 16%, transparent);
-  --danger: #a8322a;
-  --warn: #7f5412;
-  --focus: #2f5d8a;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --paper: #171613;
-    --surface: #201e1a;
-    --ink: #eee9df;
-    --ink-2: #c4bdb0;
-    --ink-3: #a0998c;
-    --line: #37332c;
-    --moss: #9dba7f;
-    --moss-ink: #171613;
-    --route: #d9714a;
-    --route-fill: color-mix(in oklab, var(--route) 22%, transparent);
-    --danger: #ec7a6f;
-    --warn: #e0b25c;
-    --focus: #8fb8e0;
-  }
+  color-scheme: light;
+  --paper: #ffffff;
+  --surface: #f7f6fb;
+  --ink: #1b1a24;
+  --ink-2: #4a4858;
+  --ink-3: #6b6979;
+  --line: #e6e4ee;
+  --brand-from: #4f46dd;
+  --brand-to: #823be0;
+  --brand: #6a40df;
+  --brand-ink: #ffffff;
+  --brand-soft: color-mix(in oklab, var(--brand) 9%, white);
+  --brand-gradient: linear-gradient(90deg, var(--brand-from), var(--brand-to));
+  --route: var(--brand);
+  --route-top: color-mix(in oklab, var(--brand) 32%, white);
+  --route-edge: color-mix(in oklab, var(--brand-to) 55%, white);
+  --danger: #b4312a;
+  --warn: #86560f;
+  --focus: var(--brand);
 }
 
 @theme inline {
@@ -47,8 +39,9 @@
   --color-ink-2: var(--ink-2);
   --color-ink-3: var(--ink-3);
   --color-line: var(--line);
-  --color-moss: var(--moss);
-  --color-moss-ink: var(--moss-ink);
+  --color-brand: var(--brand);
+  --color-brand-ink: var(--brand-ink);
+  --color-brand-soft: var(--brand-soft);
   --color-route: var(--route);
   --color-danger: var(--danger);
   --color-warn: var(--warn);
@@ -90,4 +83,15 @@ body {
     transition-duration: 0ms !important;
     animation-duration: 0ms !important;
   }
+}
+
+@utility brand-fill {
+  background-image: var(--brand-gradient);
+  color: var(--brand-ink);
+}
+
+@utility brand-text {
+  background-image: var(--brand-gradient);
+  background-clip: text;
+  color: transparent;
 }
