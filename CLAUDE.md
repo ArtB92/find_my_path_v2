@@ -22,6 +22,7 @@ Features come from the owner, one at a time. Don't build ahead of the ask.
 
 ## UI
 Aim for a calm, crafted product, not a template. Before any UI work, load the `ui-craft` skill.
+The vendored skills (`.claude/skills/SOURCES.md`) are general guidance; where they disagree with `ui-craft` or this file (extra component, animation or icon libraries, Title Case copy, remote images), `ui-craft` and this file win. Before calling UI work done, check it against `web-interface-guidelines` and look at it at 375px and 1440px with `webapp-testing`.
 
 ## Working conventions
 - Small PRs, one concern each. Conventional commit prefixes (`feat:`, `fix:`, `chore:`…).
