@@ -18,6 +18,7 @@ const QUERIES = [
   "100 km loop from Asnières with 900 m of climbing",
   "je veux faire une boucle de 70 bornes depuis Rambouillet avec pas mal de dénivelé",
   "I want a hilly ride of about 2h30 from Meudon",
+  "150 km loop from Asnières with around 1000m of elevation, going through Vallée de Chevreuse",
 ];
 
 async function post<T>(path: string, body: unknown): Promise<T> {
@@ -37,7 +38,7 @@ for (const query of QUERIES) {
     const route = await post<Route>("routes", { intent, pins: [] });
     const totalMs = performance.now() - started;
     if (totalMs > LIMIT_MS) failures++;
-    line = `${totalMs > LIMIT_MS ? "SLOW" : "ok  "} ${(totalMs / 1000).toFixed(1)} s (reading ${(parsedMs / 1000).toFixed(1)} s)  ${(route.distanceM / 1000).toFixed(0)} km, ${route.ascentM} m up`;
+    line = `${totalMs > LIMIT_MS ? "SLOW" : "ok  "} ${(totalMs / 1000).toFixed(1)} s (reading ${(parsedMs / 1000).toFixed(1)} s)  ${(route.distanceM / 1000).toFixed(0)} km, ${route.ascentM} m up${route.missed ? `  (missed: ${route.missed})` : ""}`;
   } catch (err) {
     failures++;
     line = `FAIL ${((performance.now() - started) / 1000).toFixed(1)} s  ${(err as Error).message}`;

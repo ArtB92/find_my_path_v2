@@ -160,6 +160,11 @@ export function Planner() {
             {phase === "routing" && !route && <StatsSkeleton />}
             {route && (
               <div className={`flex flex-col gap-4 transition-opacity duration-200 ${phase === "routing" ? "opacity-50" : ""}`}>
+                {route.missed && (
+                  <p role="status" className="border-l-2 border-warn pl-3 text-sm text-warn">
+                    {route.missed}
+                  </p>
+                )}
                 <dl className="grid grid-cols-3 gap-3">
                   <Stat label="Distance" value={formatKm(route.distanceM)} target={route.targets.distanceKm !== null ? `${route.targets.distanceKm} km` : null} />
                   <Stat label="Climbing" value={formatM(route.ascentM)} target={route.targets.elevationGainM !== null ? `${route.targets.elevationGainM} m` : null} />

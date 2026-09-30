@@ -18,6 +18,7 @@
   --route: #b5532f;
   --route-fill: color-mix(in oklab, var(--route) 16%, transparent);
   --danger: #a8322a;
+  --warn: #7f5412;
   --focus: #2f5d8a;
 }
 
@@ -34,6 +35,7 @@
     --route: #d9714a;
     --route-fill: color-mix(in oklab, var(--route) 22%, transparent);
     --danger: #ec7a6f;
+    --warn: #e0b25c;
     --focus: #8fb8e0;
   }
 }
@@ -49,6 +51,7 @@
   --color-moss-ink: var(--moss-ink);
   --color-route: var(--route);
   --color-danger: var(--danger);
+  --color-warn: var(--warn);
 
   --font-display: "Fraunces Variable", Georgia, serif;
   --font-sans: "IBM Plex Sans Variable", system-ui, sans-serif;

@@ -42,7 +42,7 @@ route ──► map, elevation profile, GPX
 - `docker/brouter`: BRouter server image; downloads its routing tiles on first start.
 - `tools/climbs` → `data/climbs`: every climb in the area (bottom, top, length, gain, grade), found offline from Overture Maps roads and Copernicus elevation. Rebuild with `docker compose run --rm climbs`.
 
-A route that can't match the request within 10% on distance and 20% on climbing is refused with the closest match found, instead of returning something off target.
+When no route matches the request within 10% on distance and 20% on climbing, the closest one found is returned with a message saying what it misses. Hilly loops chain real climbs, zigzagging between them and riding one twice when there is nothing else around.
 
 ## Develop without Docker
 

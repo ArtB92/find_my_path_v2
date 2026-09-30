@@ -127,11 +127,11 @@ describe("planner", () => {
     expect(Math.abs(route.distanceM - 80_000) / 80_000).toBeLessThanOrEqual(TOLERANCE.distance);
   });
 
-  it("says so when the climbing asked for doesn't exist", async () => {
+  it("returns the closest route, saying what it misses, when the climbing asked for doesn't exist", async () => {
     const { planner } = setup(hillsToTheEast);
-    const attempt = planner.plan(intent({ distanceKm: 40, elevationGainM: 3000 }), []);
-    await expect(attempt).rejects.toMatchObject({ code: "target_unreachable" });
-    await expect(attempt).rejects.toThrow(/closest we found/);
+    const route = await planner.plan(intent({ distanceKm: 40, elevationGainM: 3000 }), []);
+    expect(route.track.length).toBeGreaterThan(0);
+    expect(route.missed).toMatch(/closest we found.*not enough climbing|isn't enough climbing/);
   });
 
   it("loops through an area without riding the same road back", async () => {
@@ -154,10 +154,18 @@ describe("planner", () => {
     expect(overlapRatio(route.track)).toBeGreaterThan(0.8);
   });
 
-  it("refuses a loop too short to reach the place asked for", async () => {
+  it("says when a loop is too short to reach the place asked for", async () => {
     const { planner } = setup();
-    const attempt = planner.plan(intent({ distanceKm: 20, via: [{ place: text("Rambouillet"), kind: "point" }] }), []);
-    await expect(attempt).rejects.toThrow(/too far apart/);
+    const route = await planner.plan(intent({ distanceKm: 20, via: [{ place: text("Rambouillet"), kind: "point" }] }), []);
+    expect(route.missed).toMatch(/too far apart/);
+  });
+
+  it("rides the only climb around twice to get closer to the climbing asked for", async () => {
+    const [climb] = easternClimbs();
+    const { planner, routing } = setup(hillsToTheEast, [climb!]);
+    await planner.plan(intent({ distanceKm: 50, elevationGainM: 250 }), []);
+    const bottom = { lon: climb!.path[0]![0], lat: climb!.path[0]![1] };
+    expect(routing.calls.some((call) => call.filter((p) => haversineM(p, bottom) < 1).length === 2)).toBe(true);
   });
 
   it("defaults a bare loop to 40 km and says so", async () => {

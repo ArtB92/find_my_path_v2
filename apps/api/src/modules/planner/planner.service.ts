@@ -209,7 +209,7 @@ export function createPlannerService({ geocoding, routing, budgetMs = PLAN_BUDGE
           }
           let track = routed.track;
           if (entersZone(track, zones)) return null;
-          if (penaliseOverlap) track = trimSpurs(track, { keep });
+          if (penaliseOverlap) track = trimSpurs(track, { keep: [...keep, ...(shape.keep ?? [])] });
           const lengthM = trackLengthM(track);
           const straightM = Math.max(pathLengthM(waypoints), 1);
           return {
@@ -240,9 +240,10 @@ export function createPlannerService({ geocoding, routing, budgetMs = PLAN_BUDGE
         }
 
         const climbShapes =
-          climbs && isLoop && via.length === 0 && targets.distanceM && targets.elevationM
+          climbs && isLoop && targets.distanceM && targets.elevationM
             ? climbLoops({
                 start: start!,
+                through: via,
                 climbs: climbs.near(start!, 0.4 * targets.distanceM, { paved: intent.bike === "road" }),
                 distanceM: targets.distanceM,
                 elevationM: targets.elevationM,
@@ -277,14 +278,13 @@ export function createPlannerService({ geocoding, routing, budgetMs = PLAN_BUDGE
           .sort((a, b) => potential(a, targets, penaliseOverlap) - potential(b, targets, penaliseOverlap))
           .slice(0, REFINED_CANDIDATES);
         const refined = await mapWithConcurrency(shortlist, PARALLEL_ROUTES, refine);
-        // A route that matches the request beats any that doesn't, however nice.
+        // A route that matches the request beats any that doesn't, however nice; when none does,
+        // the closest one is returned, saying what it misses.
         const matching = refined.filter((c) => withinTolerance(c, targets));
-        const best = (matching.length ? matching : refined).sort(
-          (a, b) => score(a, targets, penaliseOverlap) - score(b, targets, penaliseOverlap),
-        )[0]!;
+        const best = matching.length
+          ? matching.sort((a, b) => score(a, targets, penaliseOverlap) - score(b, targets, penaliseOverlap))[0]!
+          : refined.sort((a, b) => score(a, targets, penaliseOverlap) - ride(a) - (score(b, targets, penaliseOverlap) - ride(b)))[0]!;
         console.info(`planned in ${Date.now() - startedAt} ms with ${routingCalls} routing calls`);
-
-        if (!withinTolerance(best, targets)) throw unreachable(best, targets);
         const climbed = (best.shape as Partial<ClimbShape>).climbs;
         if (climbed?.length) {
           notes.push(`Climbs: ${climbed.map((c) => `${c.name ?? "unnamed road"} (${(c.lengthM / 1000).toFixed(1)} km at ${Math.round(c.avgGrade * 100)}%)`).join(", ")}.`);
@@ -308,6 +308,7 @@ export function createPlannerService({ geocoding, routing, budgetMs = PLAN_BUDGE
           bike: intent.bike,
           isLoop,
           notes,
+          missed: matching.length ? null : missedTargets(best, targets),
         };
       } finally {
         clearTimeout(cutoffTimer);
@@ -364,6 +365,7 @@ function buildStarts({ start, anchors, isLoop, via, targets, outAndBack: backAll
     : [bentLegs(anchors, { side: 1 }), bentLegs(anchors, { side: -1 })];
 
   if (targets.distanceM !== null) {
+    starts.push(...climbShapes.map((shape) => ({ shape })));
     starts.push(...variants.map((shape) => ({ shape })));
     // Bending both legs out makes the loop cross whatever lies on either side; keep to one side too.
     if (isLoop && via.length === 1) starts.push(...([1, -1] as const).map((side) => ({ shape: loopThrough(start, via[0]!, side) })));
@@ -376,7 +378,7 @@ function buildStarts({ start, anchors, isLoop, via, targets, outAndBack: backAll
   return starts;
 }
 
-function unreachable(best: Candidate, t: Targets): DomainError {
+function missedTargets(best: Candidate, t: Targets): string {
   const km = (m: number) => `${Math.round(m / 1000)} km`;
   const found = `${km(best.lengthM)} with ${best.ascentM} m of climbing`;
   const asked = [t.distanceM && km(t.distanceM), t.elevationM !== null && `${t.elevationM} m of climbing`]
@@ -388,6 +390,6 @@ function unreachable(best: Candidate, t: Targets): DomainError {
       : t.elevationM !== null && best.ascentM < t.elevationM
         ? " There isn't enough climbing around here for that distance."
         : "";
-  return new DomainError("target_unreachable", `You asked for ${asked}; the closest we found is ${found}.${hint}`);
+  return `You asked for ${asked}; this is the closest we found: ${found}.${hint}`;
 }
 export type PlannerService = ReturnType<typeof createPlannerService>;

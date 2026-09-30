@@ -9,7 +9,6 @@ const STATUS: Record<ErrorCode, ContentfulStatusCode> = {
   place_not_found: 422,
   outside_service_area: 422,
   no_route: 422,
-  target_unreachable: 422,
   intent_unclear: 422,
   upstream_unavailable: 503,
   internal: 500,

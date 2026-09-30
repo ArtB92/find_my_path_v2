@@ -11,6 +11,8 @@ export interface Shape {
   waypoints(scale: number): LatLon[];
   minScale: number;
   maxScale: number;
+  /** Points the ride goes to on purpose: a dead end leading to one is not trimmed. */
+  keep?: LatLon[];
 }
 
 /** Scale whose straight-line length is closest to `lengthM` (bisection; length grows with scale). */

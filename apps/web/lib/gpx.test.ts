@@ -15,6 +15,7 @@ const route: Route = {
   bike: "road",
   isLoop: true,
   notes: [],
+  missed: null,
 };
 
 describe("gpx", () => {
