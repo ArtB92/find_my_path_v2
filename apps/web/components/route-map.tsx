@@ -29,6 +29,32 @@ maplibregl.setWorkerUrl("/maplibre/maplibre-gl-worker.mjs");
 
 const token = (name: string) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 
+/** Map button that flies back to the route, or to the whole service area when there's none. */
+function recenterControl(home: () => LngLatBoundsLike): maplibregl.IControl {
+  const group = document.createElement("div");
+  group.className = "maplibregl-ctrl maplibregl-ctrl-group";
+  const button = document.createElement("button");
+  button.type = "button";
+  button.title = "Recenter map";
+  button.setAttribute("aria-label", "Recenter map");
+  button.className = "grid place-items-center";
+  button.innerHTML =
+    '<svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"><circle cx="10" cy="10" r="5.5"/><circle cx="10" cy="10" r="1.5" fill="currentColor" stroke="none"/><path d="M10 1.5v3M10 15.5v3M1.5 10h3M15.5 10h3"/></svg>';
+  group.append(button);
+  let map: maplibregl.Map | undefined;
+  button.addEventListener("click", () => map?.fitBounds(home(), { padding: 48, duration: 600 }));
+  return {
+    onAdd(m) {
+      map = m;
+      return group;
+    },
+    onRemove() {
+      group.remove();
+      map = undefined;
+    },
+  };
+}
+
 function markerEl(className: string, text = "") {
   const el = document.createElement("div");
   el.className = className;
@@ -42,6 +68,7 @@ export default function RouteMap({ route, pins, addingPin, onAddPin, onMovePin, 
   const pinMarkers = useRef<maplibregl.Marker[]>([]);
   const waypointMarkers = useRef<maplibregl.Marker[]>([]);
   const hoverMarker = useRef<maplibregl.Marker | null>(null);
+  const home = useRef<LngLatBoundsLike>(ILE_DE_FRANCE);
   const handlers = useRef({ addingPin, onAddPin, onMovePin });
   useEffect(() => {
     handlers.current = { addingPin, onAddPin, onMovePin };
@@ -51,6 +78,7 @@ export default function RouteMap({ route, pins, addingPin, onAddPin, onMovePin, 
     if (!container.current) return;
     const m = new maplibregl.Map({ container: container.current, style: MAP_STYLE, bounds: ILE_DE_FRANCE, attributionControl: { compact: true } });
     m.addControl(new maplibregl.NavigationControl({ showCompass: false }), "top-right");
+    m.addControl(recenterControl(() => home.current), "top-right");
     m.on("style.load", () => {
       const [from, to, ink] = [token("--brand-from"), token("--brand-to"), token("--brand-ink")];
       m.addSource("route", { type: "geojson", data: EMPTY, lineMetrics: true });
@@ -121,6 +149,7 @@ export default function RouteMap({ route, pins, addingPin, onAddPin, onMovePin, 
       waypointMarkers.current.forEach((mk) => mk.remove());
       waypointMarkers.current = [];
       if (!route) {
+        home.current = ILE_DE_FRANCE;
         source.setData(EMPTY);
         return;
       }
@@ -143,6 +172,7 @@ export default function RouteMap({ route, pins, addingPin, onAddPin, onMovePin, 
       );
       const bounds = new maplibregl.LngLatBounds();
       route.track.forEach(([lon, lat]) => bounds.extend([lon, lat]));
+      home.current = bounds;
       m.fitBounds(bounds, { padding: 48, duration: 600 });
     };
     if (m.getSource("route")) draw();

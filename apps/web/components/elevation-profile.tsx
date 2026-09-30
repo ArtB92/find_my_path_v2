@@ -1,7 +1,7 @@
 "use client";
 
 import type { TrackPoint } from "@find-my-path/shared";
-import { useMemo, useRef, useState, useEffect, type KeyboardEvent, type PointerEvent } from "react";
+import { useId, useMemo, useRef, useState, useEffect, type KeyboardEvent, type PointerEvent } from "react";
 import { formatKm, formatM } from "@/lib/format";
 import { bisect, cumulativeKm } from "@/lib/track";
 
@@ -12,7 +12,9 @@ interface Props {
 }
 
 const HEIGHT = 150;
-const PAD = { top: 12, right: 12, bottom: 22, left: 40 };
+const PAD = { top: 16, right: 16, bottom: 22, left: 40 };
+/** Offset of the profile's back face, which gives it depth. */
+const DEPTH = { x: 6, y: -7 };
 
 function niceStep(range: number, targetTicks: number) {
   const raw = range / targetTicks;
@@ -22,6 +24,7 @@ function niceStep(range: number, targetTicks: number) {
 
 export function ElevationProfile({ track, hoverIndex, onHover }: Props) {
   const box = useRef<HTMLDivElement>(null);
+  const faceId = useId();
   const [width, setWidth] = useState(360);
 
   useEffect(() => {
@@ -50,7 +53,18 @@ export function ElevationProfile({ track, hoverIndex, onHover }: Props) {
     const xStep = niceStep(totalKm || 1, Math.max(2, Math.floor(innerW / 70)));
     const xTicks: number[] = [];
     for (let v = 0; v <= totalKm; v += xStep) xTicks.push(v);
-    return { km, x, y, line, area, yTicks, xTicks, totalKm, lowest: Math.min(...eles), highest: Math.max(...eles) };
+    const pts = track.map((p, i) => [x(km[i]!), y(p[2])] as const);
+    const shift = ([px, py]: readonly [number, number]) => `${(px + DEPTH.x).toFixed(1)},${(py + DEPTH.y).toFixed(1)}`;
+    const at = ([px, py]: readonly [number, number]) => `${px.toFixed(1)},${py.toFixed(1)}`;
+    const top = pts
+      .slice(1)
+      .map((b, i) => `M${at(pts[i]!)}L${at(b)}L${shift(b)}L${shift(pts[i]!)}Z`)
+      .join("");
+    const end = pts.at(-1) ?? ([x(0), y(yMin)] as const);
+    const base = [end[0], y(yMin)] as const;
+    const side = `M${at(end)}L${shift(end)}L${shift(base)}L${at(base)}Z`;
+    const ribs = xTicks.slice(1).map((v) => ({ x: x(v), top: y(track[bisect(km, v)]![2]), bottom: y(yMin) }));
+    return { km, x, y, line, area, top, side, ribs, yTicks, xTicks, totalKm, lowest: Math.min(...eles), highest: Math.max(...eles) };
   }, [track, width]);
 
   const pickAt = (clientX: number, rect: DOMRect) => {
@@ -101,8 +115,19 @@ export function ElevationProfile({ track, hoverIndex, onHover }: Props) {
         <text x={width - PAD.right} y={HEIGHT - 6} textAnchor="end" className="fill-ink-3 text-[11px]">
           km
         </text>
-        <path d={chart.area} fill="var(--route-fill)" />
-        <path d={chart.line} fill="none" stroke="var(--route)" strokeWidth={2} strokeLinejoin="round" />
+        <defs>
+          <linearGradient id={faceId} x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0" stopColor="var(--brand-to)" />
+            <stop offset="1" stopColor="var(--brand-from)" />
+          </linearGradient>
+        </defs>
+        <path d={chart.top} fill="var(--route-top)" stroke="var(--route-top)" strokeWidth={0.5} />
+        <path d={chart.side} fill="var(--brand-from)" />
+        <path d={chart.area} fill={`url(#${faceId})`} />
+        {chart.ribs.map((r) => (
+          <line key={r.x} x1={r.x} x2={r.x} y1={r.top} y2={r.bottom} stroke="var(--brand-ink)" strokeOpacity={0.35} strokeWidth={1} />
+        ))}
+        <path d={chart.line} fill="none" stroke="var(--route-edge)" strokeWidth={1.5} strokeLinejoin="round" />
         {hover && (
           <g>
             <line
@@ -113,7 +138,7 @@ export function ElevationProfile({ track, hoverIndex, onHover }: Props) {
               stroke="var(--ink-3)"
               strokeWidth={1}
             />
-            <circle cx={chart.x(hover.km)} cy={chart.y(hover.ele)} r={4.5} fill="var(--route)" stroke="var(--surface)" strokeWidth={2} />
+            <circle cx={chart.x(hover.km)} cy={chart.y(hover.ele)} r={4.5} fill="var(--route)" stroke="var(--paper)" strokeWidth={2} />
           </g>
         )}
       </svg>

@@ -25,7 +25,8 @@
   --brand-soft: color-mix(in oklab, var(--brand) 9%, white);
   --brand-gradient: linear-gradient(90deg, var(--brand-from), var(--brand-to));
   --route: var(--brand);
-  --route-fill: color-mix(in oklab, var(--brand) 14%, transparent);
+  --route-top: color-mix(in oklab, var(--brand) 32%, white);
+  --route-edge: color-mix(in oklab, var(--brand-to) 55%, white);
   --danger: #b4312a;
   --warn: #86560f;
   --focus: var(--brand);
