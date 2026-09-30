@@ -55,6 +55,25 @@ function recenterControl(home: () => LngLatBoundsLike): maplibregl.IControl {
   };
 }
 
+const PIN_ICONS = {
+  start: '<path d="M12 9.5v11l8.5-5.5z" fill="var(--brand-ink)"/>',
+  finish:
+    '<rect x="10" y="10" width="10" height="10" fill="none" stroke="var(--brand-ink)" stroke-width="1.5"/>' +
+    '<path d="M10 10h2.5v2.5H10zM15 10h2.5v2.5H15zM12.5 12.5H15V15h-2.5zM17.5 12.5H20V15h-2.5zM10 15h2.5v2.5H10zM15 15h2.5v2.5H15zM12.5 17.5H15V20h-2.5zM17.5 17.5H20V20h-2.5z" fill="var(--brand-ink)"/>',
+};
+
+function flagPin(kind: keyof typeof PIN_ICONS) {
+  const el = document.createElement("div");
+  el.className = "cursor-pointer drop-shadow-md";
+  el.setAttribute("aria-label", kind === "start" ? "Start" : "Finish");
+  el.innerHTML =
+    `<svg width="30" height="38" viewBox="0 0 30 38" aria-hidden="true"><defs><linearGradient id="pin-${kind}" x1="0" y1="0" x2="1" y2="1">` +
+    '<stop offset="0" stop-color="var(--brand-from)"/><stop offset="1" stop-color="var(--brand-to)"/></linearGradient></defs>' +
+    `<path d="M15 37S2 23.8 2 15a13 13 0 0 1 26 0c0 8.8-13 22-13 22z" fill="url(#pin-${kind})" stroke="var(--brand-ink)" stroke-width="2"/>` +
+    `${PIN_ICONS[kind]}</svg>`;
+  return el;
+}
+
 function markerEl(className: string, text = "") {
   const el = document.createElement("div");
   el.className = className;
@@ -158,18 +177,29 @@ export default function RouteMap({ route, pins, addingPin, onAddPin, onMovePin, 
         properties: {},
         geometry: { type: "LineString", coordinates: route.track.map(([lon, lat]) => [lon, lat]) },
       });
-      waypointMarkers.current = route.waypoints.map((w) =>
-        new maplibregl.Marker({
-          element: markerEl(
-            w.role === "via"
-              ? "size-3 rounded-full border-2 border-white bg-ink shadow"
-              : "size-4 rounded-full border-[3px] border-white bg-brand shadow-md",
-          ),
-        })
-          .setLngLat([w.lon, w.lat])
-          .setPopup(new maplibregl.Popup({ offset: 12, closeButton: false }).setText(w.name))
+      const [first, last] = [route.track[0]!, route.track.at(-1)!];
+      const startName = route.waypoints.find((w) => w.role === "start")?.name ?? "Start";
+      const endName = route.waypoints.find((w) => w.role === "end")?.name ?? startName;
+      /** On a loop both flags stand on the same spot, so they lean apart. */
+      const lean = route.isLoop ? 13 : 0;
+      const flags = [
+        { kind: "start" as const, at: first, name: startName, dx: -lean },
+        { kind: "finish" as const, at: last, name: endName, dx: lean },
+      ].map((f) =>
+        new maplibregl.Marker({ element: flagPin(f.kind), anchor: "bottom", offset: [f.dx, 0] })
+          .setLngLat([f.at[0], f.at[1]])
+          .setPopup(new maplibregl.Popup({ offset: [f.dx, -38], closeButton: false }).setText(`${f.kind === "start" ? "Start" : "Finish"}: ${f.name}`))
           .addTo(m),
       );
+      const vias = route.waypoints
+        .filter((w) => w.role === "via")
+        .map((w) =>
+          new maplibregl.Marker({ element: markerEl("size-3 rounded-full border-2 border-white bg-ink shadow") })
+            .setLngLat([w.lon, w.lat])
+            .setPopup(new maplibregl.Popup({ offset: 12, closeButton: false }).setText(w.name))
+            .addTo(m),
+        );
+      waypointMarkers.current = [...vias, ...flags];
       const bounds = new maplibregl.LngLatBounds();
       route.track.forEach(([lon, lat]) => bounds.extend([lon, lat]));
       home.current = bounds;

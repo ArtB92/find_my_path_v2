@@ -52,7 +52,7 @@ export function ElevationProfile({ track, hoverIndex, onHover }: Props) {
     for (let v = yMin; v <= yMax; v += yStep) yTicks.push(v);
     const xStep = niceStep(totalKm || 1, Math.max(2, Math.floor(innerW / 70)));
     const xTicks: number[] = [];
-    for (let v = 0; v <= totalKm; v += xStep) xTicks.push(v);
+    for (let v = 0; v <= totalKm && x(v) < width - PAD.right - 24; v += xStep) xTicks.push(v);
     const pts = track.map((p, i) => [x(km[i]!), y(p[2])] as const);
     const shift = ([px, py]: readonly [number, number]) => `${(px + DEPTH.x).toFixed(1)},${(py + DEPTH.y).toFixed(1)}`;
     const at = ([px, py]: readonly [number, number]) => `${px.toFixed(1)},${py.toFixed(1)}`;
