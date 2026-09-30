@@ -21,7 +21,7 @@ Status: repo scaffolded for Claude only; no app code yet. Features come from the
 
 ## UI
 Aim for a calm, crafted product, not a template. Before any UI work, load the `ui-craft` skill.
-The vendored `design-taste-frontend` skill (`.claude/skills/taste-skill`) is general anti-template guidance, mainly for landing pages; where it disagrees with `ui-craft` or the default stack (e.g. extra animation or icon libraries), `ui-craft` and this file win.
+The vendored `taste-skill` skill is general anti-template guidance, mainly for landing pages; where it disagrees with `ui-craft` or the default stack (e.g. extra animation or icon libraries), `ui-craft` and this file win.
 
 ## Working conventions
 - Small PRs, one concern each. Conventional commit prefixes (`feat:`, `fix:`, `chore:`…).
