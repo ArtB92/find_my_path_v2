@@ -16,6 +16,8 @@ const QUERIES = [
   "build a route from Versailles to Paris, going through Poissy, avoiding Chatou",
   "build a loop from Asnières, going towards south west",
   "100 km loop from Asnières with 900 m of climbing",
+  "je veux faire une boucle de 70 bornes depuis Rambouillet avec pas mal de dénivelé",
+  "I want a hilly ride of about 2h30 from Meudon",
 ];
 
 async function post<T>(path: string, body: unknown): Promise<T> {
