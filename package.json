@@ -11,7 +11,8 @@
     "build": "pnpm -r build",
     "lint": "eslint .",
     "typecheck": "pnpm -r typecheck",
-    "test": "vitest run"
+    "test": "vitest run",
+    "bench": "pnpm --filter @find-my-path/api bench"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.0",
