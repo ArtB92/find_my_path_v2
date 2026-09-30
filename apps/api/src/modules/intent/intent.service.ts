@@ -34,8 +34,9 @@ export function createIntentService({ llm }: { llm: IntentLlmAdapter | null }) {
       // The rules found a start and something route-like: a small model saying "not a route" is the one that's wrong.
       return read.isRouteRequest || !quick ? read : { ...quick.intent, notes: PARTLY_READ };
     } catch (err) {
-      if (!quick || !(err instanceof DomainError) || err.code !== "upstream_unavailable") throw err;
+      if (!(err instanceof DomainError) || err.code !== "upstream_unavailable") throw err;
       console.warn(`intent: ${err.message} Using the quick reading instead.`);
+      if (!quick) throw new DomainError("intent_unclear", "We couldn't read that request. Try “60 km loop from Versailles”, or fill in the route settings.");
       return { ...quick.intent, notes: PARTLY_READ };
     }
   }

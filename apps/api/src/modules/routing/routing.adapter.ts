@@ -13,9 +13,15 @@ export interface RouteOptions {
   signal?: AbortSignal;
 }
 
+export interface RoutedTrack {
+  track: TrackPoint[];
+  /** Traffic lights along the way: stop-and-go riding, and a sign of a dense town centre. */
+  trafficLights: number;
+}
+
 export interface RoutingAdapter {
   /** Rideable track through the given points, in order. */
-  route(points: LatLon[], bike: Bike, options?: RouteOptions): Promise<TrackPoint[]>;
+  route(points: LatLon[], bike: Bike, options?: RouteOptions): Promise<RoutedTrack>;
 }
 
 /** Stock BRouter profiles: all keep bikes off motorways; fastbike prefers smooth paved roads, trekking accepts good tracks. */
@@ -27,6 +33,13 @@ const BROUTER_PROFILES: Record<Bike, string> = {
 
 const TIMEOUT_MS = 45_000;
 
+/**
+ * BRouter's second, exact search pass costs ~3x the time through dense towns like Paris, for routes
+ * that come out within 0.1% of the same cost on Île-de-France roads. The planner tries many shapes
+ * within 10 s, so it skips that pass.
+ */
+const SKIP_EXACT_PASS = "-1";
+
 export function createBrouterAdapter(baseUrl: string): RoutingAdapter {
   return {
     async route(points, bike, { avoid = [], signal } = {}) {
@@ -35,6 +48,7 @@ export function createBrouterAdapter(baseUrl: string): RoutingAdapter {
       url.searchParams.set("profile", BROUTER_PROFILES[bike]);
       url.searchParams.set("alternativeidx", "0");
       url.searchParams.set("format", "geojson");
+      url.searchParams.set("profile:pass2coefficient", SKIP_EXACT_PASS);
       if (avoid.length) {
         url.searchParams.set("nogos", avoid.map((z) => `${z.lon.toFixed(6)},${z.lat.toFixed(6)},${Math.round(z.radiusM)}`).join("|"));
       }
@@ -55,14 +69,21 @@ export function createBrouterAdapter(baseUrl: string): RoutingAdapter {
         throw new DomainError("no_route", "The routing engine couldn't connect these points.");
       }
       const body = BrouterResponseSchema.parse(await res.json());
-      const coords = body.features[0]!.geometry.coordinates;
+      const feature = body.features[0]!;
       let lastEle = 0;
-      return coords.map(([lon, lat, ele]) => {
+      const track = feature.geometry.coordinates.map(([lon, lat, ele]): TrackPoint => {
         if (ele !== undefined) lastEle = ele;
         return [lon!, lat!, lastEle];
       });
+      return { track, trafficLights: countTrafficLights(feature.properties?.messages ?? []) };
     },
   };
+}
+
+function countTrafficLights([header, ...rows]: string[][]): number {
+  const column = header?.indexOf("NodeTags") ?? -1;
+  if (column < 0) return 0;
+  return rows.filter((row) => /traffic_signals/.test(row[column] ?? "")).length;
 }
 
 /** Straight lines densified every ~50 m, with elevation from `elevationAt`. Ignores no-go zones. For tests. */
@@ -88,7 +109,7 @@ export function createFakeRoutingAdapter(
           track.push([p.lon, p.lat, elevationAt(p)]);
         }
       }
-      return track;
+      return { track, trafficLights: 0 };
     },
   };
 }

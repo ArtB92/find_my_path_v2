@@ -20,6 +20,13 @@ describe("rules parser", () => {
     ["Paris - Versailles", { start: "Paris", end: "Versailles" }],
     ["boucle de 100 km autour de Fontainebleau", { start: "Fontainebleau", loop: true, distanceKm: 100 }],
     ["aller-retour de Paris à Versailles", { start: "Paris", end: "Versailles", outAndBack: true }],
+    ["boucle de 70 bornes depuis Rambouillet avec pas mal de dénivelé", { start: "Rambouillet", distanceKm: 70, elevationGainM: 490 }],
+    ["hilly 60k loop from Chevreuse", { start: "Chevreuse", distanceKm: 60, elevationGainM: 420 }],
+    ["flat 40 km ride from Paris", { start: "Paris", distanceKm: 40, elevationGainM: 120 }],
+    ["40 miles loop from Versailles", { start: "Versailles", distanceKm: 64 }],
+    ["je pars de Sèvres et je veux rouler 1h30", { start: "Sèvres", loop: true, distanceKm: 38 }],
+    ["sortie d'une heure et demie en gravel depuis Poissy", { start: "Poissy", bike: "gravel", distanceKm: 27 }],
+    ["Something quiet around Saint-Germain-en-Laye for a sunday morning, maybe 2 hours", { start: "Saint-Germain-en-Laye", distanceKm: 50 }],
   ])("reads %s", (query, expected) => {
     const result = parseWithRules(query, pins);
     expect(result?.complete).toBe(true);

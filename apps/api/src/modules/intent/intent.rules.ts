@@ -20,7 +20,7 @@ const word = (alternatives: string, flags = "iu") => new RegExp(`(?<![${W}])(?:$
 const strip = (text: string, re: RegExp, by = " ") => text.replace(new RegExp(re.source, "giu"), by);
 
 const MARKERS: [Role, string[]][] = [
-  ["start", ["from", "starting from", "starting at", "start at", "start from", "leaving from", "depuis", "au départ de", "au depart de", "départ de", "depart de", "départ", "partant de", "en partant de", "around", "near", "autour de", "près de", "pres de"]],
+  ["start", ["from", "starting from", "je pars de", "pars de", "partir de", "partant d'", "starting at", "start at", "start from", "leaving from", "depuis", "au départ de", "au depart de", "départ de", "depart de", "départ", "partant de", "en partant de", "around", "near", "autour de", "près de", "pres de"]],
   ["end", ["to", "ending at", "finishing at", "finish at", "arriving at", "jusqu'à", "jusqu'a", "arrivée à", "arrivee a", "à", "vers"]],
   ["via", ["via", "through", "thru", "passing through", "passing by", "going through", "going via", "by way of", "across", "par", "en passant par", "passant par", "à travers", "a travers", "dans"]],
 ];
@@ -51,7 +51,30 @@ const BIKES: [LlmIntent["bike"], RegExp][] = [
 const PREAMBLE = word("(?:i'd|i would|i|we'd|we) (?:like|want|love|need)(?: to)?|want to|going to|have to|je (?:veux|voudrais|cherche|souhaite)|on (?:veut|voudrait)");
 const BIKE_WORDS = word("à vélo|a velo|en vélo|en velo|by bike|à bicyclette");
 
-const KM = new RegExp(`(\\d+(?:[.,]\\d+)?)\\s*(?:km|kms|kilom[eè]tres?|kilometers?)(?![${W}])`, "iu");
+const KM = new RegExp(`(\\d+(?:[.,]\\d+)?)\\s*(?:km|kms|k|bornes?|kilom[eè]tres?|kilometers?)(?![${W}])`, "iu");
+const MILES = new RegExp(`(\\d+(?:[.,]\\d+)?)\\s*(?:miles?|mi)(?![${W}])`, "iu");
+const KM_PER_MILE = 1.609;
+
+/** "2h", "1h30", "2 hours", "une heure et demie": riding time, turned into a distance at the bike's usual pace. */
+const WORD_HOURS: Record<string, number> = { an: 1, a: 1, one: 1, une: 1, un: 1, two: 2, deux: 2, three: 3, trois: 3, four: 4, quatre: 4, five: 5, cinq: 5 };
+const HALF = `(?<half>\\s*(?:and a half|et demie?))`;
+const DURATION = [
+  new RegExp(`(?<amount>\\d+(?:[.,]\\d+)?)\\s*(?:h|hrs?|hours?|heures?)(?:\\s*(?<minutes>\\d{2})(?:\\s*(?:min|mn))?)?${HALF}?(?![${W}])`, "iu"),
+  word(`(?:d')?(?<amount>${Object.keys(WORD_HOURS).join("|")})\\s+(?:hours?|heures?)${HALF}?`),
+  word(`(?:an?|une)\\s+(?<amount>half)[- ]hour|(?:d')?une\\s+demi-heure`),
+];
+const PACE_KMH: Record<NonNullable<LlmIntent["bike"]>, number> = { road: 25, gravel: 18, trekking: 18 };
+
+/** "Hilly" or "flat" without a number: climbing per km typical of Île-de-France's hilly and flat rides. */
+const HILLY = word(
+  "hilly|very hilly|lots of climbing|plenty of climbing|lots of climbs|with climbs|hills|vallonn[ée]e?s?|tr[eè]s vallonn[ée]e?|costaud(?:e|s)?|(?:pas mal|beaucoup|plein) de (?:d[ée]nivel[ée]e?|d\\+|bosses|c[ôo]tes|mont[ée]es)|du d[ée]nivel[ée]e?|avec des (?:bosses|c[ôo]tes|mont[ée]es)|bosselée?",
+);
+const FLAT = word(
+  "flat|as flat as possible|mostly flat|no hills|no climbing|easy|not too hard|plate?s?|le plus plat possible|sans d[ée]nivel[ée]e?|sans (?:bosses|c[ôo]tes)|facile|pas trop dure?|pas trop difficile",
+);
+const CLIMB_PER_KM = { hilly: 7, flat: 3 };
+/** Distance the planner aims for when a loop has none; hilliness still needs one to become metres. */
+const TYPICAL_LOOP_KM = 40;
 const METRES = `(?:m|mètres?|metres?|meters?)`;
 const CLIMB = `(?:d\\+|dplus|d[ée]nivel[ée]e?(?: positif)?|d[ée]niv|elevation(?: gain)?|climbing|climb|ascent|vertical|of (?:elevation(?: gain)?|climbing|climb|ascent|vertical)|de (?:d[ée]nivel[ée]e?(?: positif)?|mont[ée]e)|de d\\+)`;
 const NUMBER = `(\\d{1,3}(?:[ \\u202f.]\\d{3})+|\\d+)`;
@@ -92,7 +115,11 @@ const FILLER = new Set(
     "around about approximately approx roughly near nearly almost max maximum min minimum total only just like want need would could can please thanks " +
     "un une le la les l d de du des mon ma mes je on moi faire trouve trouver donne donner propose proposer balade sortie parcours itinéraire itineraire trajet " +
     "vélo velo environ à peu près presque max minimum maximum total seulement bien belle beau jolie joli merci " +
-    "build create generate draw long start starting and then going et puis crée créer construis construire génère générer fais dessine longue"
+    "build create generate draw long start starting and then going et puis crée créer construis construire génère générer fais dessine longue " +
+    // When and how it feels: quiet roads are always preferred, so these need nothing more.
+    "something quelque chose maybe perhaps peut-être plutôt rather quite assez pretty quiet calm calme tranquille chill cool relaxed " +
+    "morning afternoon evening today tomorrow weekend sunday saturday matin après-midi soir aujourd'hui demain week-end dimanche samedi " +
+    "rouler pars en for pour"
   ).split(" "),
 );
 
@@ -118,6 +145,19 @@ function toPlace(s: string, pins: Pin[]): string {
   return cleanPlace(s);
 }
 
+function takeDuration(text: string): [number | null, string] {
+  for (const re of DURATION) {
+    const m = re.exec(text);
+    if (!m) continue;
+    const { amount, minutes, half } = m.groups ?? {};
+    const hours = !amount || amount === "half"
+      ? 0.5
+      : (WORD_HOURS[amount.toLowerCase()] ?? Number(amount.replace(",", "."))) + (minutes ? Number(minutes) / 60 : 0) + (half ? 0.5 : 0);
+    return [hours, text.replace(m[0], " ; ")];
+  }
+  return [null, text];
+}
+
 function takeFirst(text: string, patterns: RegExp[]): [number | null, string] {
   for (const re of patterns) {
     const m = re.exec(text);
@@ -131,9 +171,16 @@ export function parseWithRules(query: string, pins: Pin[]): RulesResult | null {
   let text = ` ${query.replace(/[’`]/g, "'").replace(/\s+/g, " ")} `.replace(/\s(?:-+|–|—|->|=>|→|>)\s/gu, " to ");
   const leftovers: string[] = [];
 
-  const [distanceKm, afterDistance] = takeFirst(text, [KM]);
-  const [elevationGainM, afterClimb] = takeFirst(afterDistance, ELEVATION);
-  text = afterClimb;
+  let [distanceKm, afterDistance] = takeFirst(text, [KM]);
+  if (distanceKm === null) {
+    const [miles, afterMiles] = takeFirst(afterDistance, [MILES]);
+    if (miles !== null) [distanceKm, afterDistance] = [Math.round(miles * KM_PER_MILE), afterMiles];
+  }
+  const [hours, afterDuration] = takeDuration(afterDistance);
+  let elevationGainM: number | null;
+  [elevationGainM, text] = takeFirst(afterDuration, ELEVATION);
+  const hilliness = HILLY.test(text) ? "hilly" : FLAT.test(text) ? "flat" : null;
+  for (const re of [HILLY, FLAT]) text = strip(text, re, " ; ");
 
   const outAndBack = OUT_AND_BACK.test(text);
   text = strip(text, OUT_AND_BACK, " ; ");
@@ -214,6 +261,12 @@ export function parseWithRules(query: string, pins: Pin[]): RulesResult | null {
   if (places.some((p) => p.split(/\s+/).length > 8)) return null;
 
   const loop = loopWord || !end;
+  if (distanceKm === null && hours !== null) distanceKm = Math.round(hours * PACE_KMH[bike ?? "road"]);
+  if (hilliness && elevationGainM === null) {
+    // Between two places the distance isn't known yet: that part is left to the language model.
+    if (loop) elevationGainM = Math.round((CLIMB_PER_KM[hilliness] * (distanceKm ?? TYPICAL_LOOP_KM)) / 10) * 10;
+    else leftovers.push(hilliness);
+  }
   return {
     intent: {
       isRouteRequest: true,

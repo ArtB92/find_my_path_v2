@@ -91,6 +91,8 @@ export interface Route {
   bike: Bike;
   isLoop: boolean;
   notes: string[];
+  /** What the route doesn't match in the request, when no route could: it's then the closest found. */
+  missed: string | null;
 }
 
 export const ErrorCodeSchema = z.enum([
@@ -98,7 +100,6 @@ export const ErrorCodeSchema = z.enum([
   "place_not_found",
   "outside_service_area",
   "no_route",
-  "target_unreachable",
   "intent_unclear",
   "upstream_unavailable",
   "internal",

@@ -14,10 +14,10 @@ const at = (name: string, lat: number, lon: number, over: Partial<GeocodedPlace>
 });
 
 describe("geocoding service", () => {
-  it("prefers a confident address-base hit for towns and addresses", async () => {
+  it("takes a confident address-base hit for towns and addresses without waiting for OpenStreetMap", async () => {
     const service = createGeocodingService({
       ban: createFakeGeocoder({ versaille: at("Versailles", 48.8049, 2.1204) }),
-      photon: createFakeGeocoder({ versaille: at("Versailles (OSM)", 48.8, 2.13) }),
+      photon: { search: () => new Promise(() => {}) },
       serviceArea: idf,
     });
     expect((await service.resolve("Versaille")).name).toBe("Versailles");
@@ -49,5 +49,16 @@ describe("geocoding service", () => {
     });
     await expect(service.resolve("Lyon")).rejects.toMatchObject({ code: "outside_service_area" });
     await expect(service.resolve("Nowhereville")).rejects.toMatchObject({ code: "place_not_found" });
+  });
+
+  it("reads a town elsewhere as that town, not a street named after it here", async () => {
+    const service = createGeocodingService({
+      ban: {
+        search: async () => [at("Lyon", 45.76, 4.83, { score: 0.88 }), at("Rue de Lyon, Paris", 48.848, 2.372, { kind: "street", score: 0.72 })],
+      },
+      photon: createFakeGeocoder({}),
+      serviceArea: idf,
+    });
+    await expect(service.resolve("Lyon")).rejects.toMatchObject({ code: "outside_service_area" });
   });
 });

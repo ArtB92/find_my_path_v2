@@ -11,6 +11,8 @@ export interface Shape {
   waypoints(scale: number): LatLon[];
   minScale: number;
   maxScale: number;
+  /** Points the ride goes to on purpose: a dead end leading to one is not trimmed. */
+  keep?: LatLon[];
 }
 
 /** Scale whose straight-line length is closest to `lengthM` (bisection; length grows with scale). */
@@ -98,6 +100,45 @@ export function bentLegs(anchors: LatLon[], { at = 0.5, side = 1, fixed = new Se
           out.push(plane.toLatLon({ x: a.x + dx * at + dy * off, y: a.y + dy * at - dx * off }));
         }
         out.push(anchors[i]!);
+      }
+      return out;
+    },
+  };
+}
+
+/**
+ * Loop from `start` through `via` around a circle through both, its centre pushed to one side
+ * (`side` ±1) of the line between them: the ride stays on that side instead of bending both
+ * ways, e.g. out into the country rather than through the town on the other side. Scale is how
+ * far the centre moves, in metres; 0 is the circle with the two places at opposite ends.
+ */
+export function loopThrough(start: LatLon, via: LatLon, side: 1 | -1): Shape {
+  const plane = localPlane(start);
+  const v = plane.toXY(via);
+  const chordM = Math.hypot(v.x, v.y);
+  const normal = { x: (-v.y / chordM) * side, y: (v.x / chordM) * side };
+  return {
+    label: `loop through, side ${side}`,
+    minScale: 0,
+    maxScale: 150_000,
+    waypoints(scale) {
+      const centre = { x: v.x / 2 + normal.x * scale, y: v.y / 2 + normal.y * scale };
+      const radius = Math.hypot(centre.x, centre.y);
+      const toStart = Math.atan2(-centre.y, -centre.x);
+      const toVia = Math.atan2(v.y - centre.y, v.x - centre.x);
+      const outArc = (((toVia - toStart) % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI);
+      const out: LatLon[] = [start];
+      for (const [from, arc, end] of [
+        [toStart, outArc, via],
+        [toVia, 2 * Math.PI - outArc, start],
+      ] as const) {
+        // A shaping point every third of a turn or so keeps the ride on the circle.
+        const n = Math.max(1, Math.round(arc / ((2 * Math.PI) / 3)));
+        for (let k = 1; k <= n; k++) {
+          const angle = from + (arc * k) / (n + 1);
+          out.push(plane.toLatLon({ x: centre.x + radius * Math.cos(angle), y: centre.y + radius * Math.sin(angle) }));
+        }
+        out.push(end);
       }
       return out;
     },

@@ -26,18 +26,25 @@ export function createGeocodingService({ ban, photon, serviceArea }: Deps) {
   const cached = createCache<GeocodedPlace>(500);
 
   async function lookup(text: string, preferArea: boolean, signal?: AbortSignal): Promise<GeocodedPlace> {
-    const [banRes, photonRes] = await Promise.allSettled([
-      ban.search(text, { bbox: serviceArea.bbox, signal }),
-      photon.search(text, { bbox: serviceArea.bbox, signal }),
-    ]);
-    if (banRes.status === "rejected" && photonRes.status === "rejected") throw banRes.reason;
-
+    const photonPending = photon.search(text, { bbox: serviceArea.bbox, signal });
+    photonPending.catch(() => {});
+    const [banRes] = await Promise.allSettled([ban.search(text, { bbox: serviceArea.bbox, signal })]);
     const banAll = banRes.status === "fulfilled" ? banRes.value : [];
-    const photonAll = photonRes.status === "fulfilled" ? photonRes.value : [];
     const banHit = banAll.find((p) => isInBbox(p, serviceArea.bbox));
+    // "Lyon" is the town, not the rue de Lyon in Paris: a better-matching town elsewhere wins over a street here.
+    const topBan = banAll[0];
+    if (!preferArea && topBan?.kind === "town" && !isInBbox(topBan, serviceArea.bbox) && banHit?.kind !== "town" && topBan.score > (banHit?.score ?? 0)) {
+      throw new DomainError("outside_service_area", `"${text}" is outside ${serviceArea.name}, the only area supported for now.`);
+    }
+    const goodBan = banHit && banHit.score >= BAN_MIN_SCORE ? banHit : undefined;
+    // The public Photon server often takes seconds: don't wait for it when the address base is sure.
+    if (goodBan && !preferArea) return goodBan;
+
+    const [photonRes] = await Promise.allSettled([photonPending]);
+    if (banRes.status === "rejected" && photonRes.status === "rejected") throw banRes.reason;
+    const photonAll = photonRes.status === "fulfilled" ? photonRes.value : [];
     const photonHit = photonAll.find((p) => isInBbox(p, serviceArea.bbox));
 
-    const goodBan = banHit && banHit.score >= BAN_MIN_SCORE ? banHit : undefined;
     const pick = preferArea ? (photonHit ?? goodBan ?? banHit) : (goodBan ?? photonHit ?? banHit);
     if (pick) return pick;
 
