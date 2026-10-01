@@ -1,11 +1,11 @@
 import type { Compass, LatLon, Pin, PlaceRef, Route, RouteIntent, RouteWaypoint, TrackPoint } from "@find-my-path/shared";
-import { mapWithConcurrency } from "../../lib/concurrency";
+import { createLimiter, mapWithConcurrency } from "../../lib/concurrency";
 import { DomainError } from "../../lib/errors";
 import type { ClimbIndex } from "../climbs";
 import type { GeocodedPlace, GeocodingService } from "../geocoding";
 import type { NoGoZone, RoutedTrack, RoutingAdapter } from "../routing";
 import { angleDiffDeg, bearingDeg, destination, elevationStats, haversineM, localPlane, overlapRatio, pathLengthM, trackLengthM, trimSpurs } from "./planner.geometry";
-import { climbLoops, type ClimbShape } from "./planner.climbs";
+import { climbLaps, climbLoops, isLapShape, type ClimbShape } from "./planner.climbs";
 import { bentLegs, ellipseLoop, loopThrough, outAndBack, scaleForLength, type Shape } from "./planner.shapes";
 
 interface Deps {
@@ -31,8 +31,11 @@ export const PLAN_CUTOFF_MS = 8500;
 const INITIAL_ROAD_FACTOR = 1.3;
 const PARALLEL_ROUTES = 4;
 const REFINED_CANDIDATES = 4;
+const REFINED_LAPS = 2;
 const MAX_REFINEMENTS = 3;
 const SAME_PLACE_M = 300;
+/** Climbs this close to the place the rider named for them count as theirs. */
+const CLIMB_AREA_M = 4000;
 
 interface Resolved extends LatLon {
   name: string;
@@ -55,6 +58,14 @@ interface Candidate {
   lightsPerKm: number;
   /** How far the loop's far side is from the direction asked, in degrees. */
   offCourseDeg: number;
+  /** For laps, the routed pieces, so the laps can be ridden more or fewer times without routing again. */
+  lapParts?: LapParts;
+}
+
+interface LapParts {
+  there: RoutedTrack;
+  once: RoutedTrack;
+  home: RoutedTrack;
 }
 
 function distanceError(c: Candidate, t: Targets) {
@@ -81,15 +92,20 @@ function ride(c: Candidate) {
   return 0.2 * c.lightsPerKm + (0.3 * c.offCourseDeg) / 45;
 }
 
+/** Every lap up the same hill makes a ride a bit duller than one over different climbs. */
+const laps = (c: Candidate) => (isLapShape(c.shape) ? c.shape.laps : 0);
+
 /**
  * Lower is better. Repeated roads weigh most: a route that hits the numbers by riding the same
- * road twice is not what a cyclist asked for.
+ * road twice is not what a cyclist asked for, unless it's laps of a climb to get the climbing.
  */
 function score(c: Candidate, t: Targets, penaliseOverlap: boolean) {
-  return 2 * distanceError(c, t) + 1.5 * elevationError(c.ascentM, t) + (penaliseOverlap ? 3 * c.overlap : 0) + ride(c);
+  return 2 * distanceError(c, t) + 1.5 * elevationError(c.ascentM, t) + (penaliseOverlap ? 3 * c.overlap : 0) + 0.05 * laps(c) + ride(c);
 }
 
-const projectedAscent = (c: Candidate, t: Targets) => (t.distanceM ? (c.ascentM * t.distanceM) / c.lengthM : c.ascentM);
+/** Climbing once the distance is tuned; laps already ride the hill the best number of times. */
+const projectedAscent = (c: Candidate, t: Targets) =>
+  t.distanceM && !isLapShape(c.shape) ? (c.ascentM * t.distanceM) / c.lengthM : c.ascentM;
 
 /**
  * First-round ranking, before the distance is tuned: judge climbing per km, not in total. A shape
@@ -198,12 +214,45 @@ export function createPlannerService({ geocoding, routing, budgetMs = PLAN_BUDGE
         const penaliseOverlap = !intent.outAndBack;
         const headingDeg = isLoop && intent.direction ? COMPASS_DEG[intent.direction] : null;
 
+        // The router drops requests beyond the ones it can run at once, and laps make several per shape.
+        const limit = createLimiter(PARALLEL_ROUTES);
+        const route = (points: LatLon[]) =>
+          limit(() => {
+            routingCalls++;
+            return routing.route(points, intent.bike, { avoid: zones, signal: routeSignal });
+          });
+        // One lap is routed once per hill and ridden as many times as asked.
+        const lapRoutes = new Map<string, Promise<RoutedTrack>>();
+        function routeLap(lap: LatLon[]) {
+          const key = lap.map((p) => `${p.lon},${p.lat}`).join("|");
+          if (!lapRoutes.has(key)) lapRoutes.set(key, route(lap));
+          return lapRoutes.get(key)!;
+        }
+
+        /** The ride to the hill, the laps, and the last lap and ride home, joined into one track. */
+        function joinLaps(laps: number, { there, once, home }: LapParts): RoutedTrack {
+          const again = Array.from({ length: laps - 1 }, () => once.track.slice(1)).flat();
+          return {
+            track: [...there.track, ...again, ...home.track.slice(1)],
+            trafficLights: there.trafficLights + (laps - 1) * once.trafficLights + home.trafficLights,
+          };
+        }
+
         async function evaluate(shape: Shape, scale: number): Promise<Candidate | null> {
           const waypoints = moveOutOfZones(shape.waypoints(scale), zones);
           let routed: RoutedTrack;
-          routingCalls++;
+          let lapParts: LapParts | undefined;
           try {
-            routed = await routing.route(waypoints, intent.bike, { avoid: zones, signal: routeSignal });
+            if (isLapShape(shape)) {
+              const { out, lap, back } = shape.parts(shape.waypoints(scale));
+              const parts = await Promise.all([route(moveOutOfZones(out, zones)), routeLap(lap), route(moveOutOfZones(back, zones))]);
+              // Trimmed piece by piece: the joined track rides the same spots so often that trimming it whole is slow.
+              const [there, once, home] = parts.map((p) => (penaliseOverlap ? { ...p, track: trimSpurs(p.track, { keep: [...keep, ...shape.keep!] }) } : p));
+              lapParts = { there: there!, once: once!, home: home! };
+              routed = joinLaps(shape.laps, lapParts);
+            } else {
+              routed = await route(waypoints);
+            }
           } catch (err) {
             if (cutoff.signal.aborted && !signal?.aborted) return null;
             // A shaping point in a lake or a military zone only rules out this candidate; if every
@@ -214,9 +263,13 @@ export function createPlannerService({ geocoding, routing, budgetMs = PLAN_BUDGE
             }
             throw err;
           }
+          return candidate(shape, scale, waypoints, routed, lapParts);
+        }
+
+        function candidate(shape: Shape, scale: number, waypoints: LatLon[], routed: RoutedTrack, lapParts?: LapParts): Candidate | null {
           let track = routed.track;
           if (entersZone(track, zones)) return null;
-          if (penaliseOverlap) track = trimSpurs(track, { keep: [...keep, ...(shape.keep ?? [])] });
+          if (penaliseOverlap && !lapParts) track = trimSpurs(track, { keep: [...keep, ...(shape.keep ?? [])] });
           const lengthM = trackLengthM(track);
           const straightM = Math.max(pathLengthM(waypoints), 1);
           return {
@@ -225,38 +278,83 @@ export function createPlannerService({ geocoding, routing, budgetMs = PLAN_BUDGE
             track,
             lengthM,
             ...elevationStats(track),
-            overlap: penaliseOverlap ? overlapRatio(track) : 0,
+            overlap: penaliseOverlap ? overlapRatio(track, { ignore: shape.repeatsIn }) : 0,
             roadFactor: lengthM / straightM,
             lightsPerKm: routed.trafficLights / Math.max(lengthM / 1000, 1),
             offCourseDeg: headingDeg === null ? 0 : angleDiffDeg(bearingDeg(start!, farthestFrom(start!, track)), headingDeg),
+            lapParts,
           };
         }
 
-        async function refine(c: Candidate): Promise<Candidate> {
+        const closeness = (c: Candidate) =>
+          isLapShape(c.shape) ? 2 * distanceError(c, targets) + 1.5 * elevationError(c.ascentM, targets) : distanceError(c, targets);
+
+        /**
+         * The number of laps closest to the distance and climbing asked, between the one the climbing
+         * calls for and the one the distance does: the same roads, so no routing.
+         */
+        function bestLaps(c: Candidate): Candidate {
+          if (!isLapShape(c.shape) || !c.lapParts) return c;
+          const { laps: now, maxLaps } = c.shape;
+          const lap = c.lapParts.once.track;
+          const lapAscentM = Math.max(elevationStats(lap).ascentM, 1);
+          const forClimbing = now + (targets.elevationM! - c.ascentM) / lapAscentM;
+          const forDistance = now + (targets.distanceM! - c.lengthM) / Math.max(trackLengthM(lap), 1);
           let best = c;
+          const from = Math.max(1, Math.round(Math.min(forClimbing, forDistance)));
+          for (let laps = from; laps <= Math.min(maxLaps, Math.round(Math.max(forClimbing, forDistance)), from + 6); laps++) {
+            if (laps === now) continue;
+            const shape = c.shape.withLaps(laps);
+            const next = candidate(shape, c.scale, moveOutOfZones(shape.waypoints(c.scale), zones), joinLaps(laps, c.lapParts), c.lapParts);
+            if (next && closeness(next) < closeness(best)) best = next;
+          }
+          return best;
+        }
+
+        async function refine(c: Candidate): Promise<Candidate> {
+          let best = bestLaps(c);
           for (let i = 0; i < MAX_REFINEMENTS && targets.distanceM && !outOfTime(); i++) {
             if (distanceError(best, targets) <= TOLERANCE.distance / 3) break;
             const scale = scaleForLength(best.shape, targets.distanceM / best.roadFactor);
             if (Math.abs(scale - best.scale) <= 1e-3 * Math.max(1, Math.abs(best.scale))) break;
             const next = await evaluate(best.shape, scale);
             if (!next) break;
-            if (distanceError(next, targets) < distanceError(best, targets)) best = next;
+            const tuned = bestLaps(next);
+            if (closeness(tuned) < closeness(best)) best = tuned;
             else break;
           }
           return best;
         }
 
-        const climbShapes =
-          climbs && isLoop && targets.distanceM && targets.elevationM
-            ? climbLoops({
+        const wantsClimbs = climbs && isLoop && targets.distanceM && targets.elevationM;
+        const paved = intent.bike === "road";
+        const climbShapes = wantsClimbs
+          ? climbLoops({
+              start: start!,
+              through: via,
+              climbs: climbs.near(start!, 0.4 * targets.distanceM!, { paved }),
+              distanceM: targets.distanceM!,
+              elevationM: targets.elevationM!,
+              headingDeg,
+            })
+          : [];
+        // More climbing than the climbs around give once each: laps of the best hill, around the
+        // place the rider named if they did.
+        const lapShapes =
+          wantsClimbs && via.length <= 1
+            ? climbLaps({
                 start: start!,
-                through: via,
-                climbs: climbs.near(start!, 0.4 * targets.distanceM, { paved: intent.bike === "road" }),
-                distanceM: targets.distanceM,
-                elevationM: targets.elevationM,
+                through: intent.via[0]?.kind === "point" ? via[0] : undefined,
+                climbs: via.length ? climbs.near(via[0]!, CLIMB_AREA_M, { paved }) : climbs.near(start!, 0.4 * targets.distanceM!, { paved }),
+                distanceM: targets.distanceM!,
+                elevationM: targets.elevationM!,
                 headingDeg,
               })
             : [];
+        // With laps on offer, loops whose climbs give well under the climbing asked only take time.
+        const worthTrying = lapShapes.length
+          ? climbShapes.filter((shape) => shape.climbs.reduce((sum, c) => sum + c.gainM, 0) >= 0.35 * targets.elevationM!)
+          : climbShapes;
         const starts = buildStarts({
           start: start!,
           anchors,
@@ -266,14 +364,15 @@ export function createPlannerService({ geocoding, routing, budgetMs = PLAN_BUDGE
           outAndBack: intent.outAndBack,
           direction: intent.direction,
           detour: zones.length > 0,
-          climbShapes,
+          // Laps where the rider asked for them come first; otherwise both kinds get tried early.
+          climbShapes: via.length ? [...lapShapes, ...worthTrying] : interleave(worthTrying, lapShapes),
         });
         const firstRound = (
           await mapWithConcurrency(starts, PARALLEL_ROUTES, async ({ shape, scale }) => {
             if (found > 0 && outOfTime()) return null;
             const c = await evaluate(shape, scale ?? scaleForLength(shape, (targets.distanceM ?? 0) / INITIAL_ROAD_FACTOR));
             if (c) found++;
-            return c;
+            return c && bestLaps(c);
           })
         ).filter((c): c is Candidate => c !== null);
         if (firstRound.length === 0) {
@@ -281,9 +380,12 @@ export function createPlannerService({ geocoding, routing, budgetMs = PLAN_BUDGE
           throw noRoute ?? new DomainError("no_route", `We couldn't find a rideable route here${around}.`);
         }
 
-        const shortlist = [...firstRound]
-          .sort((a, b) => potential(a, targets, penaliseOverlap) - potential(b, targets, penaliseOverlap))
-          .slice(0, REFINED_CANDIDATES);
+        // The best laps are tuned on top, not instead: a ride over different climbs is nicer when it can match.
+        const ranked = [...firstRound].sort((a, b) => potential(a, targets, penaliseOverlap) - potential(b, targets, penaliseOverlap));
+        const shortlist = [
+          ...ranked.filter((c) => !isLapShape(c.shape)).slice(0, REFINED_CANDIDATES),
+          ...ranked.filter((c) => isLapShape(c.shape)).slice(0, REFINED_LAPS),
+        ];
         const refined = await mapWithConcurrency(shortlist, PARALLEL_ROUTES, refine);
         // A route that matches the request beats any that doesn't, however nice; when none does,
         // the closest one is returned, saying what it misses.
@@ -294,7 +396,8 @@ export function createPlannerService({ geocoding, routing, budgetMs = PLAN_BUDGE
         console.info(`planned in ${Date.now() - startedAt} ms with ${routingCalls} routing calls`);
         const climbed = (best.shape as Partial<ClimbShape>).climbs;
         if (climbed?.length) {
-          notes.push(`Climbs: ${climbed.map((c) => `${c.name ?? "unnamed road"} (${(c.lengthM / 1000).toFixed(1)} km at ${Math.round(c.avgGrade * 100)}%)`).join(", ")}.`);
+          const times = isLapShape(best.shape) ? `, ridden ${best.shape.laps} times` : "";
+          notes.push(`Climbs: ${climbed.map((c) => `${c.name ?? "unnamed road"} (${(c.lengthM / 1000).toFixed(1)} km at ${Math.round(c.avgGrade * 100)}%)`).join(", ")}${times}.`);
         }
         if (penaliseOverlap && best.overlap > 0.25) {
           notes.push("Some roads are ridden twice: there aren't many ways around here.");
@@ -325,6 +428,8 @@ export function createPlannerService({ geocoding, routing, budgetMs = PLAN_BUDGE
 }
 
 const point = ({ lat, lon }: LatLon): LatLon => ({ lat, lon });
+
+const interleave = <T,>(a: T[], b: T[]) => Array.from({ length: Math.max(a.length, b.length) }, (_, i) => [a[i], b[i]]).flat().filter((x): x is T => x !== undefined);
 
 function farthestFrom(from: LatLon, track: TrackPoint[]): LatLon {
   let best = from;

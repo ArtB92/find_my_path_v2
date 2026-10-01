@@ -33,6 +33,11 @@ describe("overlapRatio", () => {
     const d = destination(origin, 0, 5000);
     expect(overlapRatio(line([origin, b, c, d, origin]))).toBeLessThan(0.05);
   });
+
+  it("leaves out the part of the track inside the area to ignore", () => {
+    const far = destination(origin, 45, 5000);
+    expect(overlapRatio(line([origin, far, origin]), { ignore: { ...origin, radiusM: 6000 } })).toBe(0);
+  });
 });
 
 describe("trimSpurs", () => {

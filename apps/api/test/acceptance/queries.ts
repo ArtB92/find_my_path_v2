@@ -52,6 +52,7 @@ const P = {
   vincennes: at("Château de Vincennes", 48.8428, 2.4357),
   bougival: at("Bougival", 48.8627, 2.1411),
   malmaison: at("Rueil-Malmaison", 48.8778, 2.1802),
+  meudon: at("Meudon", 48.8125, 2.2375),
 };
 
 export const CASES: AcceptanceCase[] = [
@@ -101,6 +102,16 @@ export const CASES: AcceptanceCase[] = [
   { query: "je veux faire une boucle de 70 bornes depuis Rambouillet avec pas mal de dénivelé", reads: { distanceKm: 70, elevationGainM: 490 } },
   { query: "I want a hilly ride of about 2h30 from Meudon", reads: { start: "Meudon", distanceKm: 63 } },
   { query: "flat 40 km ride from Saint-Germain-en-Laye", reads: { distanceKm: 40, elevationGainM: 120 } },
+  // More climbing than the roads around offer once each: the route rides the best climbs again.
+  {
+    query: "I want to generate a 100km route from Asnières, with 1500m of elevation, with multiple loops over Meudon climbs",
+    reads: { start: "Asnières", distanceKm: 100, elevationGainM: 1500, via: ["Meudon"] },
+    passes: [{ ...P.meudon, nearKm: 3 }],
+  },
+  { query: "60 km loop from Asnières with 1000 m of climbing", reads: { distanceKm: 60, elevationGainM: 1000 } },
+  { query: "100 km loop from Versailles with 1500 m of climbing", reads: { distanceKm: 100, elevationGainM: 1500 } },
+  { query: "boucle de 80 km depuis Chevreuse avec 1400 m de D+", reads: { distanceKm: 80, elevationGainM: 1400 } },
+  { query: "50 km loop from Sèvres with 1000 m of climbing, repeating the climbs", reads: { distanceKm: 50, elevationGainM: 1000 } },
   // Asks for more than the area has: the closest route comes back with a message.
   { query: "60 km loop from Paris with 2000 m of climbing", reads: { elevationGainM: 2000 }, mayMiss: true },
 

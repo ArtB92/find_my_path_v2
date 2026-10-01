@@ -13,6 +13,8 @@ export interface Shape {
   maxScale: number;
   /** Points the ride goes to on purpose: a dead end leading to one is not trimmed. */
   keep?: LatLon[];
+  /** Where riding the same roads again is the point (laps of a climb), not a flaw. */
+  repeatsIn?: LatLon & { radiusM: number };
 }
 
 /** Scale whose straight-line length is closest to `lengthM` (bisection; length grows with scale). */

@@ -45,6 +45,13 @@ describe("rules parser", () => {
     ["build a loop from Asnières, going towards south west", { start: "Asnières", loop: true, direction: "SW" }],
     ["boucle de 60 km depuis Versailles vers le sud-est en évitant Buc et Jouy-en-Josas", { start: "Versailles", direction: "SE", avoid: ["Buc", "Jouy-en-Josas"] }],
     ["loop from Paris heading north, avoiding Saint-Denis, 50 km", { start: "Paris", direction: "N", avoid: ["Saint-Denis"], distanceKm: 50 }],
+    [
+      "I want to generate a 100km route from Asnières, with 1500m of elevation, with multiple loops over Meudon climbs",
+      { start: "Asnières", loop: true, distanceKm: 100, elevationGainM: 1500, via: [{ place: "Meudon", kind: "point" }] },
+    ],
+    ["80 km loop from Versailles with 1200 m, laps of the climbs of the vallée de Chevreuse", { via: [{ place: "vallée de Chevreuse", kind: "area" }] }],
+    ["boucle de 60 km depuis Paris avec 900 m de D+, plusieurs tours sur les côtes de Meudon", { start: "Paris", via: [{ place: "Meudon", kind: "point" }] }],
+    ["50 km loop from Sèvres with 1000 m of climbing, repeating the climbs", { start: "Sèvres", via: [], elevationGainM: 1000 }],
   ])("reads the harder request %s", (query, expected) => {
     const result = parseWithRules(query, pins);
     expect(result?.complete).toBe(true);

@@ -1,6 +1,6 @@
 import type { LatLon } from "@find-my-path/shared";
 import type { Climb } from "../climbs";
-import { angleDiffDeg, haversineM, localPlane, pathLengthM } from "./planner.geometry";
+import { angleDiffDeg, bearingDeg, haversineM, localPlane, pathLengthM } from "./planner.geometry";
 import { bentLegs, type Shape } from "./planner.shapes";
 
 export interface ClimbShape extends Shape {
@@ -169,5 +169,112 @@ function chain(
     climbs: ridden,
     // A climb up to a dead end is still the point of the ride.
     keep: ridden.map((c) => toLatLon(c.path.at(-1)!)),
+  };
+}
+
+export interface LapShape extends ClimbShape {
+  laps: number;
+  maxLaps: number;
+  /** The same ride with another number of laps. */
+  withLaps(laps: number): LapShape;
+  /** Waypoints split into the ride to the hill, one lap back to its foot, and the last lap and ride home. */
+  parts(waypoints: LatLon[]): { out: LatLon[]; lap: LatLon[]; back: LatLon[] };
+}
+
+export const isLapShape = (shape: Shape): shape is LapShape => "withLaps" in shape;
+
+interface LapOptions {
+  start: LatLon;
+  /** A place the rider asked to pass, on the way to the hill. */
+  through?: LatLon;
+  /** Climbs to choose from: around the place the rider named for them, or within reach of the start. */
+  climbs: Climb[];
+  distanceM: number;
+  elevationM: number;
+  headingDeg: number | null;
+  max?: number;
+}
+
+/** Climbs ridden in one lap start within this distance of each other, so the lap stays on one hill. */
+const LAP_SPREAD_M = 2500;
+const MAX_LAP_CLIMBS = 3;
+/** Climbing the roads to and from the laps typically give, per km. */
+const APPROACH_M_PER_KM = 4;
+
+/**
+ * Loops that ride to a hill and climb it again and again: each lap rides up one to three climbs
+ * that start close together, back down, and round again, as many times as the climbing asked
+ * needs and the distance allows. The legs to and from the hill bend like any other shape's, so
+ * the loop's length is tuned the same way.
+ */
+export function climbLaps({ start, through, climbs, distanceM, elevationM, headingDeg, max = 3 }: LapOptions): LapShape[] {
+  const bottomOf = (c: Climb) => toLatLon(c.path[0]!);
+  const usable = climbs
+    .filter((c) => {
+      const d = haversineM(start, bottomOf(c));
+      return d > 300 && d < REACH * distanceM && (headingDeg === null || angleDiffDeg(bearingDeg(start, bottomOf(c)), headingDeg) <= 60);
+    })
+    .sort((a, b) => b.gainM - a.gainM)
+    .slice(0, 40);
+  const limitM = distanceM / ROAD_FACTOR;
+
+  const options: { set: Climb[]; laps: number; maxLaps: number; centre: LatLon; rank: number }[] = [];
+  for (const seed of usable) {
+    const set = [seed];
+    for (const other of usable) {
+      if (set.length === MAX_LAP_CLIMBS) break;
+      if (!set.includes(other) && haversineM(bottomOf(seed), bottomOf(other)) < LAP_SPREAD_M) set.push(other);
+    }
+    const lapM = lapLengthM(set);
+    const transitM = 2 * haversineM(start, bottomOf(seed));
+    const maxLaps = Math.floor((limitM - transitM) / lapM);
+    if (maxLaps < 1) continue;
+    const gain = gainOf(set);
+    // Laps climb `gain` each; the rest of the ride climbs a little too, less the more of it is laps.
+    const perLapM = gain - (APPROACH_M_PER_KM * lapM * ROAD_FACTOR) / 1000;
+    const laps = Math.min(maxLaps, Math.max(1, Math.round((elevationM - (APPROACH_M_PER_KM * distanceM) / 1000) / perLapM)));
+    const expected = (APPROACH_M_PER_KM * distanceM) / 1000 + laps * perLapM;
+    const miss = Math.max(0, Math.abs(expected - elevationM) / elevationM - 0.1);
+    // Closest to the climbing asked first, then the fewest times up the same road, then the nearest.
+    options.push({ set, laps, maxLaps, centre: bottomOf(seed), rank: 10 * miss + 0.03 * laps + transitM / distanceM });
+  }
+
+  const out: LapShape[] = [];
+  for (const o of options.sort((a, b) => a.rank - b.rank)) {
+    if (out.length === max) break;
+    if (out.some((s) => haversineM(s.repeatsIn!, o.centre) < LAP_SPREAD_M)) continue;
+    out.push(lapShape(start, through, o.set, o.laps, o.maxLaps));
+  }
+  return out;
+}
+
+/** Up every climb of the set, then back to the first one's foot. */
+function lapLengthM(set: Climb[]): number {
+  const points = set.flatMap((c) => c.path.map(toLatLon));
+  return pathLengthM([...points, points[0]!]);
+}
+
+function lapShape(start: LatLon, through: LatLon | undefined, set: Climb[], laps: number, maxLaps: number): LapShape {
+  const lap = set.flatMap((c) => c.path.map(toLatLon));
+  const before = [start, ...(through ? [through] : [])];
+  const anchors = [...before, ...Array.from({ length: laps }, () => lap).flat(), start];
+  // Only the legs to and from the hill bend; the laps are ridden as they are.
+  const fixed = new Set(Array.from({ length: anchors.length - before.length - 2 }, (_, i) => before.length + 1 + i));
+  const shape = bentLegs(anchors, { fixed });
+  const centre = lap.reduce((sum, p) => ({ lat: sum.lat + p.lat / lap.length, lon: sum.lon + p.lon / lap.length }), { lat: 0, lon: 0 });
+  return {
+    ...shape,
+    label: `${laps} laps of ${set.map((c) => c.name ?? c.id).join(", ")}`,
+    climbs: set,
+    // Turning at the foot of a climb to ride it again is a dead end too.
+    keep: set.flatMap((c) => [toLatLon(c.path[0]!), toLatLon(c.path.at(-1)!)]),
+    repeatsIn: { ...centre, radiusM: Math.max(...lap.map((p) => haversineM(centre, p))) + 300 },
+    laps,
+    maxLaps,
+    withLaps: (n) => lapShape(start, through, set, Math.min(maxLaps, Math.max(1, n)), maxLaps),
+    parts: (waypoints) => {
+      const foot = waypoints.indexOf(lap[0]!);
+      return { out: waypoints.slice(0, foot + 1), lap: [...lap, lap[0]!], back: waypoints.slice(waypoints.lastIndexOf(lap[0]!)) };
+    },
   };
 }

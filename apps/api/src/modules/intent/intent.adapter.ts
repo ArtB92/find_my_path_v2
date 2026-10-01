@@ -21,7 +21,7 @@ Fill the fields as follows.
 - Places (start, end, via): write each one as a clean geocoder query with the correct spelling, fixing typos ("Versaille" -> "Versailles") and completing ambiguous names with the one in ${serviceAreaName} ("Asnières" -> "Asnières-sur-Seine"). Keep street addresses with their town ("12 rue de Bretagne, Asnières-sur-Seine").
 - Map pins: the rider may refer to pins dropped on the map ("A", "point B", "pin C", "here" or "from my pin" when there is only one). Write those as "pin:A". Only use pins from the list you are given.
 - loop: true when the ride returns to its start: "loop", "boucle", "round trip", same start and end, or no destination at all. Then end is null.
-- via: places to pass through, in riding order. kind "area" for regions, forests, valleys, parks, "this area" ("vallée de Chevreuse", "forêt de Rambouillet"); kind "point" for towns, addresses, pins and specific spots.
+- via: places to pass through, in riding order. kind "area" for regions, forests, valleys, parks, "this area" ("vallée de Chevreuse", "forêt de Rambouillet"); kind "point" for towns, addresses, pins and specific spots. Where the rider wants to ride climbs again ("multiple loops over Meudon climbs", "laps of the Chevreuse hills") is a via too ("Meudon").
 - distanceKm: total distance asked for ("around 80 km"), otherwise null.
 - elevationGainM: total climbing asked for ("500 m elevation", "500 D+", "dénivelé"), otherwise null. "One big climb" or "hilly" without a number: null, and add a note.
 - bike: road ("vélo de route"), gravel, trekking (VTC, hybrid, city bike); null when not said.
