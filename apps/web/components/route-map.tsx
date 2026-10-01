@@ -29,7 +29,7 @@ maplibregl.setWorkerUrl("/maplibre/maplibre-gl-worker.mjs");
 
 const token = (name: string) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 
-/** Map button that flies back to the route, or to the whole service area when there's none. */
+/** Map button that flies back, flat and north-up, to the route, or to the whole service area when there's none. */
 function recenterControl(home: () => LngLatBoundsLike): maplibregl.IControl {
   const group = document.createElement("div");
   group.className = "maplibregl-ctrl maplibregl-ctrl-group";
@@ -42,7 +42,7 @@ function recenterControl(home: () => LngLatBoundsLike): maplibregl.IControl {
     '<svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"><circle cx="10" cy="10" r="5.5"/><circle cx="10" cy="10" r="1.5" fill="currentColor" stroke="none"/><path d="M10 1.5v3M10 15.5v3M1.5 10h3M15.5 10h3"/></svg>';
   group.append(button);
   let map: maplibregl.Map | undefined;
-  button.addEventListener("click", () => map?.fitBounds(home(), { padding: 48, duration: 600 }));
+  button.addEventListener("click", () => map?.fitBounds(home(), { padding: 48, duration: 600, bearing: 0, pitch: 0 }));
   return {
     onAdd(m) {
       map = m;
