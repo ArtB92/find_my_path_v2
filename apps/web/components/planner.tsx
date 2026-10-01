@@ -5,7 +5,7 @@ import dynamic from "next/dynamic";
 import { useRef, useState } from "react";
 import { parseQuery, planRoute, RequestError } from "@/lib/api";
 import { emptyForm, formToIntent, intentToForm, type RouteForm } from "@/lib/form";
-import { formatKm, formatM, ridingTime } from "@/lib/format";
+import { formatKm, formatM } from "@/lib/format";
 import { routeName, toGpx } from "@/lib/gpx";
 import { ElevationProfile } from "./elevation-profile";
 import { RouteFormFields } from "./route-form";
@@ -99,7 +99,7 @@ export function Planner() {
                 <path d="M7 22c4-9 7 2 11-6s5-6 7-4" fill="none" stroke="var(--brand-ink)" strokeWidth={3} strokeLinecap="round" />
                 <circle cx="25" cy="12" r="2.5" fill="var(--brand-ink)" />
               </svg>
-              <h1 className="brand-text font-display text-xl leading-none font-semibold tracking-tight">FindMyPath</h1>
+              <h1 className="brand-text font-display text-xl leading-tight font-semibold tracking-tight">FindMyPath</h1>
             </div>
             <p className="mt-3 text-sm text-ink-2">Describe the ride. Get a route you can load on your bike computer.</p>
           </header>
@@ -181,10 +181,9 @@ export function Planner() {
                     {route.missed}
                   </p>
                 )}
-                <dl className="grid grid-cols-3 gap-3">
+                <dl className="grid grid-cols-2 gap-3">
                   <Stat label="Distance" value={formatKm(route.distanceM)} target={route.targets.distanceKm !== null ? `${route.targets.distanceKm} km` : null} />
                   <Stat label="Climbing" value={formatM(route.ascentM)} target={route.targets.elevationGainM !== null ? `${route.targets.elevationGainM} m` : null} />
-                  <Stat label="Riding time" value={ridingTime(route.distanceM, route.ascentM, route.bike)} />
                 </dl>
                 <div>
                   <h2 className="mb-2 text-xs font-medium text-ink-2">Elevation</h2>
@@ -229,6 +228,7 @@ export function Planner() {
           }}
           onMovePin={(label, lat, lon) => setPins((ps) => ps.map((p) => (p.label === label ? { ...p, lat, lon } : p)))}
         />
+        {busy && <RouteLoading label={phase === "reading" ? "Reading your ride…" : "Finding the route…"} />}
       </div>
     </main>
   );
@@ -247,12 +247,42 @@ function Stat({ label, value, target }: { label: string; value: string; target?:
 function StatsSkeleton() {
   return (
     <div className="flex flex-col gap-4" aria-label="Finding the route">
-      <div className="grid grid-cols-3 gap-3">
-        {[0, 1, 2].map((i) => (
+      <div className="grid grid-cols-2 gap-3">
+        {[0, 1].map((i) => (
           <div key={i} className="h-12 animate-pulse rounded-sm bg-line/60" />
         ))}
       </div>
       <div className="h-[150px] animate-pulse rounded-sm bg-line/60" />
+    </div>
+  );
+}
+
+/** Floating chip over the map while a route is on its way: the logo's road drawing itself. */
+function RouteLoading({ label }: { label: string }) {
+  return (
+    <div
+      role="status"
+      className="pointer-events-none absolute top-4 left-1/2 flex -translate-x-1/2 items-center gap-3 rounded-md bg-paper py-2 pr-4 pl-3 text-sm font-medium whitespace-nowrap text-ink shadow-lg"
+    >
+      <svg viewBox="0 0 32 20" aria-hidden="true" className="h-5 w-8 shrink-0 overflow-visible">
+        <defs>
+          <linearGradient id="loading-gradient" x1="0" y1="0" x2="1" y2="0">
+            <stop offset="0" stopColor="var(--brand-from)" />
+            <stop offset="1" stopColor="var(--brand-to)" />
+          </linearGradient>
+        </defs>
+        <path d="M2 16c5-12 9 3 14-7s7-7 14-5" fill="none" stroke="var(--line)" strokeWidth={3} strokeLinecap="round" />
+        <path
+          d="M2 16c5-12 9 3 14-7s7-7 14-5"
+          pathLength={1}
+          fill="none"
+          stroke="url(#loading-gradient)"
+          strokeWidth={3}
+          strokeLinecap="round"
+          className="route-draw"
+        />
+      </svg>
+      {label}
     </div>
   );
 }
