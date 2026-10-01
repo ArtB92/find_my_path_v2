@@ -168,6 +168,27 @@ describe("planner", () => {
     expect(routing.calls.some((call) => call.filter((p) => haversineM(p, bottom) < 1).length === 2)).toBe(true);
   });
 
+  it("rides laps of a climb when one pass of each can't give the climbing asked", async () => {
+    const [climb] = easternClimbs();
+    const { planner } = setup(hillsToTheEast, [climb!]);
+    const route = await planner.plan(intent({ distanceKm: 80, elevationGainM: 750 }), []);
+    expect(route.notes.join(" ")).toMatch(/Côte 0 .*ridden \d+ times/);
+    expect(route.missed).toBeNull();
+    expect(Math.abs(route.ascentM - 750)).toBeLessThanOrEqual(750 * TOLERANCE.elevation);
+    expect(Math.abs(route.distanceM - 80_000) / 80_000).toBeLessThanOrEqual(TOLERANCE.distance);
+  });
+
+  it("rides the laps around the place the rider named for them", async () => {
+    const climbs = easternClimbs();
+    const { planner } = setup(hillsToTheEast, climbs);
+    const [lon, lat] = climbs[1]!.path[0]!;
+    const route = await planner.plan(intent({ distanceKm: 80, elevationGainM: 900, via: [{ place: { type: "pin", label: "B" }, kind: "point" }] }), [
+      { label: "B", lat, lon },
+    ]);
+    expect(route.notes.join(" ")).toMatch(/Climbs: Côte 1 .*ridden \d+ times/);
+    expect(passesNear(route.track, { lat, lon })).toBe(true);
+  });
+
   it("defaults a bare loop to 40 km and says so", async () => {
     const { planner } = setup();
     const route = await planner.plan(intent({}), []);

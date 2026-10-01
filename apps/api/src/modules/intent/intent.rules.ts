@@ -87,6 +87,17 @@ const ELEVATION = [
 const AVOID = word(
   "avoiding|avoid|en évitant|en evitant|évitant|evitant|éviter|eviter|sans passer par|without going through|not through|not via|stay(?:ing)? (?:away from|out of)|away from|hors de",
 );
+/** "multiple loops over Meudon climbs", "laps of the Chevreuse hills": the place to ride the climbs again in. */
+const LAPS = word(
+  "(?:(?:with|avec|doing|faire|en faisant) )?(?:(?:multiple|several|many|a few|some|\\d+|two|three|four|five|plusieurs|quelques|deux|trois|quatre|cinq) )?" +
+    "(?:loops?|laps?|repeats?|reps|boucles?|tours?|répétitions?|repetitions?) (?:over|of|on|around|in|at|sur|de|des|du|dans|autour de|à|a)(?: the| les| la| le| l')?",
+);
+const CLIMB_WORDS = "climbs?|hills?|côtes?|cotes?|bosses?|montées?|montees?|ascents?";
+const AROUND_PLACE = new RegExp(`^\\s*(?:(?:${CLIMB_WORDS})\\s+(?:of|in|at|around|de|du|des|d'|à|a)\\s+(?:the\\s+)?)?|\\s+(?:${CLIMB_WORDS})\\s*$`, "giu");
+/** The planner rides climbs again whenever that's what the climbing asked needs, so saying it needs nothing more. */
+const REPEAT_CLIMBS = word(
+  `(?:by )?(?:repeating|repeat|redoing|riding again|doing again)(?: the| some| a few)? (?:${CLIMB_WORDS})|en (?:répétant|repetant|refaisant) (?:les|des) (?:${CLIMB_WORDS})`,
+);
 /** Busy roads are always avoided, so "avoid main roads" needs nothing more. */
 const BUSY_ROADS = word("main roads?|busy roads?|big roads?|highways?|motorways?|traffic|trafic|grands? axes?|grandes? routes?|routes? nationales?|nationales?|autoroutes?|voies? rapides?");
 const COMPASS = "north|south|east|west|nord|sud|est|ouest";
@@ -186,6 +197,28 @@ export function parseWithRules(query: string, pins: Pin[]): RulesResult | null {
   text = strip(text, OUT_AND_BACK, " ; ");
   const bike = BIKES.find(([, re]) => re.test(text))?.[0] ?? null;
   for (const [, re] of BIKES) text = strip(text, re);
+
+  // "avoiding Chatou and Croissy": the places run until the next marker, clause or full stop.
+  const placesAfter = (re: RegExp): string[] | null => {
+    const m = re.exec(text);
+    if (!m) return null;
+    const after = text.slice(m.index + m[0].length);
+    const stop = [/[;.,]/u.exec(after), new RegExp(markerRe.source, "iu").exec(after), CLAUSE_BREAK.exec(after)]
+      .filter((x): x is RegExpExecArray => x !== null)
+      .reduce((min, x) => Math.min(min, x.index), after.length);
+    text = `${text.slice(0, m.index)} ; ${after.slice(stop)}`;
+    return after.slice(0, stop).split(LIST_SPLIT);
+  };
+  // The climbs to ride again are around a place the route must reach.
+  const climbAreas: LlmIntent["via"] = [];
+  text = strip(text, REPEAT_CLIMBS, " ; ");
+  for (let parts = placesAfter(LAPS); parts; parts = placesAfter(LAPS)) {
+    for (const part of parts) {
+      const place = toPlace(part.replace(AROUND_PLACE, " "), pins);
+      if (place) climbAreas.push({ place, kind: AREA_WORDS.test(place) ? "area" : "point" });
+    }
+  }
+
   const loopWord = LOOP.test(text);
   for (const re of [LOOP, BIKE_WORDS, PREAMBLE]) text = strip(text, re);
 
@@ -193,19 +226,13 @@ export function parseWithRules(query: string, pins: Pin[]): RulesResult | null {
   const direction = directionMatch ? toCompass(directionMatch[1]!) : null;
   if (directionMatch) text = text.replace(directionMatch[0], " ; ");
 
-  // "avoiding Chatou and Croissy": the places run until the next marker, clause or full stop.
   const avoid: string[] = [];
-  for (let m = AVOID.exec(text); m; m = AVOID.exec(text)) {
-    const after = text.slice(m.index + m[0].length);
-    const stop = [/[;.,]/u.exec(after), new RegExp(markerRe.source, "iu").exec(after), CLAUSE_BREAK.exec(after)]
-      .filter((x): x is RegExpExecArray => x !== null)
-      .reduce((min, x) => Math.min(min, x.index), after.length);
-    for (const part of after.slice(0, stop).split(LIST_SPLIT)) {
+  for (let parts = placesAfter(AVOID); parts; parts = placesAfter(AVOID)) {
+    for (const part of parts) {
       const place = toPlace(part, pins);
       if (BUSY_ROADS.test(place)) continue;
       if (place) avoid.push(place);
     }
-    text = `${text.slice(0, m.index)} ; ${after.slice(stop)}`;
   }
 
   // French "de Paris à Versailles": a leading "de" is a start marker.
@@ -247,7 +274,7 @@ export function parseWithRules(query: string, pins: Pin[]): RulesResult | null {
   const chunks = prefix.split(";");
   const startChunk = start ? -1 : chunks.findIndex((s) => meaningful(s).length > 0);
   const saysRoute =
-    loopWord || outAndBack || bike !== null || distanceKm !== null || elevationGainM !== null || segments.length > 0 || direction !== null || avoid.length > 0;
+    loopWord || outAndBack || bike !== null || distanceKm !== null || elevationGainM !== null || segments.length > 0 || direction !== null || avoid.length > 0 || climbAreas.length > 0;
   if (startChunk >= 0 && saysRoute) {
     const chunk = chunks[startChunk]!;
     const cut = CLAUSE_BREAK.exec(chunk);
@@ -257,6 +284,7 @@ export function parseWithRules(query: string, pins: Pin[]): RulesResult | null {
   leftovers.push(...chunks.filter((_, i) => i !== startChunk));
 
   if (!start) return null;
+  via.push(...climbAreas);
   const places = [start, end, ...via.map((v) => v.place), ...avoid].filter((p): p is string => p !== null);
   if (places.some((p) => p.split(/\s+/).length > 8)) return null;
 

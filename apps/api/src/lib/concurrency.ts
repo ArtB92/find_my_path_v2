@@ -11,3 +11,19 @@ export async function mapWithConcurrency<T, R>(items: T[], limit: number, fn: (i
   await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
   return results;
 }
+
+/** Runs the functions given to it with at most `limit` in flight, the others waiting their turn. */
+export function createLimiter(limit: number) {
+  let active = 0;
+  const waiting: (() => void)[] = [];
+  return async <R>(fn: () => Promise<R>): Promise<R> => {
+    if (active >= limit) await new Promise<void>((resolve) => waiting.push(resolve));
+    active++;
+    try {
+      return await fn();
+    } finally {
+      active--;
+      waiting.shift()?.();
+    }
+  };
+}
