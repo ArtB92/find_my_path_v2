@@ -126,10 +126,13 @@ function resample(track: TrackPoint[], stepM: number): { p: LatLon; along: numbe
 /**
  * Share of the track ridden twice (0 = every road once, ~1 = pure out-and-back). Two samples
  * count as the same road when they're within `nearM` but far apart along the ride, so ordinary
- * crossings only add a few samples.
+ * crossings only add a few samples. The part of the track inside `ignore` doesn't count.
  */
-export function overlapRatio(track: TrackPoint[], { stepM = 25, nearM = 25, minGapM = 400 } = {}): number {
-  const samples = resample(track, stepM);
+export function overlapRatio(
+  track: TrackPoint[],
+  { stepM = 25, nearM = 25, minGapM = 400, ignore }: { stepM?: number; nearM?: number; minGapM?: number; ignore?: LatLon & { radiusM: number } } = {},
+): number {
+  const samples = resample(track, stepM).filter((s) => !ignore || haversineM(s.p, ignore) > ignore.radiusM);
   if (samples.length < 2) return 0;
   const grid = createGrid(nearM, samples[0]!.p.lat);
   samples.forEach((s, i) => grid.add(s.p, i));
